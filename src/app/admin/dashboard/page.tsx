@@ -15,9 +15,9 @@ import type { AgentLogEntry } from "@/lib/types"; // Corrected import path
 import { db } from '@/lib/firebase/config';
 import { collection, getDocs } from 'firebase/firestore';
 import type { AgentStatusFirestore } from "@/lib/types";
-import { useToast } from "@/hooks/use-toast"; 
+import { useToast } from "@/hooks/use-toast";
 
-import { AlertTriangle, CalendarClock, CalendarIcon, FileText, Loader2, Users, BarChartHorizontalBig, HardDriveDownload } from "lucide-react"; 
+import { AlertTriangle, CalendarClock, CalendarIcon, FileText, Loader2, Users, BarChartHorizontalBig, HardDriveDownload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -43,8 +43,8 @@ export default function AdminDashboardPage() {
 
   const [availableAgents, setAvailableAgents] = useState<AgentFilterChoice[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>("all");
-  const [isSavingToDrive, setIsSavingToDrive] = useState(false); 
-  const { toast } = useToast(); 
+  const [isSavingToDrive, setIsSavingToDrive] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     async function fetchAgentsForFilter() {
@@ -54,9 +54,9 @@ export default function AdminDashboardPage() {
         agentSnapshot.forEach(doc => {
           const data = doc.data() as AgentStatusFirestore;
           if (data.agentId) { // Only need agentId for value, name is for display
-            agents.push({ 
-              id: data.agentId, 
-              name: data.adminDisplayName || data.agentName || `Agent ${data.agentId.substring(0,6)}` 
+            agents.push({
+              id: data.agentId,
+              name: data.adminDisplayName || data.agentName || `Agent ${data.agentId.substring(0,6)}`
             });
           }
         });
@@ -104,7 +104,7 @@ export default function AdminDashboardPage() {
     setIsSavingToDrive(true);
     const dateToSaveISO = selectedDate.toISOString().split('T')[0];
     const agentIdToFilter = selectedAgentId === "all" ? undefined : selectedAgentId;
-    
+
     const selectedAgentObject = availableAgents.find(a => a.id === selectedAgentId);
     const agentNameToFilter = selectedAgentId === "all" ? "All Agents" : (selectedAgentObject?.name || `Agent_${selectedAgentId.substring(0,6)}`);
 
@@ -137,7 +137,7 @@ export default function AdminDashboardPage() {
         <h1 className="text-3xl font-headline font-bold text-foreground">Admin Dashboard</h1>
         <p className="text-muted-foreground">Overview of agent activity and adherence for {selectedDate ? format(selectedDate, "PPP") : "selected date"}.</p>
       </div>
-      
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-center mb-6">
         <div className="lg:col-span-2">
            {/* Placeholder for a title or general info about date selection */}
@@ -181,7 +181,7 @@ export default function AdminDashboardPage() {
             <LiveAgentStatusTable />
         </CardContent>
       </Card>
-      
+
       <Card className="shadow-lg">
         <CardHeader>
             <CardTitle className="text-2xl font-headline flex items-center gap-2">
@@ -194,7 +194,7 @@ export default function AdminDashboardPage() {
           <AdherenceAlertsTable />
         </CardContent>
       </Card>
-      
+
       <Card className="shadow-lg">
         <CardHeader>
             <CardTitle className="text-2xl font-headline flex items-center gap-2">
@@ -234,10 +234,10 @@ export default function AdminDashboardPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button 
-                onClick={handleSaveToDrive} 
-                variant="outline" 
-                size="sm" 
+              <Button
+                onClick={handleSaveToDrive}
+                variant="outline"
+                size="sm"
                 disabled={isSavingToDrive || isLoadingLogs || !logFetchSuccess || logsForDate.length === 0}
                 className="w-full sm:w-auto"
               >
