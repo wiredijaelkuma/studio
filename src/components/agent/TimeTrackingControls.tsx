@@ -1,15 +1,30 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Clock, LogIn, LogOut, Sandwich, Coffee, UserRound, Waves, CheckCircle2, AlertCircle, Loader2, UserCircle2 } from "lucide-react";
+import { Clock, LogIn, LogOut, Sandwich, Coffee, UserRound, Waves, CheckCircle2, AlertCircle, Loader2, UserCircle2, BellRing } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { AgentActivityType } from "@/lib/types";
 import { useAuth } from '@/contexts/AuthContext';
-import { logAgentActivity } from '@/app/actions/logAgentActivity'; // Added
+import { logAgentActivity } from '@/app/actions/logAgentActivity';
+
+// Configuration for activity limits and notifications
+const LUNCH_DURATION_MINUTES = 30;
+const BREAK_DURATION_MINUTES = 15;
+const NOTIFICATION_GRACE_PERIOD_MINUTES = 5;
+
+const MAX_LUNCH_COUNT = 1;
+const MAX_BREAK_COUNT = 2;
+const MAX_BATHROOM_COUNT = 5;
+
+interface ActivityCounts {
+  lunch: number;
+  break: number;
+  bathroom: number;
+}
 
 interface ActivityState {
   status: string;
@@ -18,43 +33,129 @@ interface ActivityState {
   isOnLunch: boolean;
   isOnBreak: boolean;
   isBathroom: boolean;
+  activityCounts: ActivityCounts;
 }
 
 export function TimeTrackingControls() {
   const { toast } = useToast();
   const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [activityState, setActivityState] = useState<ActivityState>({
+  
+  const initialActivityState: ActivityState = {
     status: "Clocked Out",
     isClockedIn: false,
     isOnLunch: false,
     isOnBreak: false,
     isBathroom: false,
-  });
+    activityCounts: { lunch: 0, break: 0, bathroom: 0 },
+  };
+  const [activityState, setActivityState] = useState<ActivityState>(initialActivityState);
   const [isLogging, setIsLogging] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | null>(null);
+
+  const lunchNotificationTimer = useRef<NodeJS.Timeout | null>(null);
+  const breakNotificationTimer = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setNotificationPermission(Notification.permission);
+    }
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      clearAllNotificationTimers();
+    };
   }, []);
 
   useEffect(() => {
     if (!user) {
-      setActivityState({
-        status: "Clocked Out",
-        isClockedIn: false,
-        isOnLunch: false,
-        isOnBreak: false,
-        isBathroom: false,
-      });
+      setActivityState(initialActivityState);
+      clearAllNotificationTimers();
+    } else {
+      // When user logs in, if they were previously clocked in (e.g. reloaded page),
+      // this state would be lost. For simplicity, we reset to initial state.
+      // A more robust solution would involve storing/retrieving state from localStorage or backend.
+       setActivityState(prevState => ({
+        ...initialActivityState,
+        status: prevState.isClockedIn ? prevState.status : "Clocked Out", // Keep status if somehow still clocked in
+        isClockedIn: prevState.isClockedIn, // Persist if needed, but generally reset
+      }));
     }
   }, [user]);
+
+  const requestNotificationPermission = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        const permission = await Notification.requestPermission();
+        setNotificationPermission(permission);
+        if (permission === 'granted') {
+          toast({ title: "Notifications Enabled", description: "You'll be notified for overdue breaks/lunch." });
+        } else {
+          toast({ variant: "destructive", title: "Notifications Denied", description: "You won't receive desktop reminders." });
+        }
+        return permission;
+      }
+      return Notification.permission;
+    }
+    return 'denied';
+  };
+
+  const showDesktopNotification = (title: string, body: string) => {
+    if (notificationPermission === 'granted') {
+      new Notification(title, { body, icon: '/favicon.ico' }); // Ensure you have a favicon.ico in public
+    }
+  };
+
+  const clearAllNotificationTimers = () => {
+    if (lunchNotificationTimer.current) clearTimeout(lunchNotificationTimer.current);
+    if (breakNotificationTimer.current) clearTimeout(breakNotificationTimer.current);
+    lunchNotificationTimer.current = null;
+    breakNotificationTimer.current = null;
+  };
+
+  const scheduleNotification = (type: 'lunch' | 'break') => {
+    clearAllNotificationTimers(); // Clear any existing timers first
+
+    const duration = type === 'lunch' ? LUNCH_DURATION_MINUTES : BREAK_DURATION_MINUTES;
+    const totalDurationMs = (duration + NOTIFICATION_GRACE_PERIOD_MINUTES) * 60 * 1000;
+    
+    const timerId = setTimeout(() => {
+      if ((type === 'lunch' && activityState.isOnLunch) || (type === 'break' && activityState.isOnBreak)) {
+        showDesktopNotification(
+          `${type.charAt(0).toUpperCase() + type.slice(1)} Overdue`,
+          `Your ${type} time is up. Please return to work.`
+        );
+      }
+    }, totalDurationMs);
+
+    if (type === 'lunch') {
+      lunchNotificationTimer.current = timerId;
+    } else {
+      breakNotificationTimer.current = timerId;
+    }
+  };
+
 
   const handleActivity = async (type: AgentActivityType, message: string, newStatus: string) => {
     if (!user) {
       toast({ variant: "destructive", title: "Not Signed In", description: "Please sign in to log activity." });
       return;
     }
+
+    // Check activity limits
+    if (type === 'lunch-start' && activityState.activityCounts.lunch >= MAX_LUNCH_COUNT) {
+      toast({ variant: "destructive", title: "Limit Reached", description: `You can only take ${MAX_LUNCH_COUNT} lunch break(s).` });
+      return;
+    }
+    if (type === 'break-start' && activityState.activityCounts.break >= MAX_BREAK_COUNT) {
+      toast({ variant: "destructive", title: "Limit Reached", description: `You can only take ${MAX_BREAK_COUNT} short break(s).` });
+      return;
+    }
+    if (type === 'bathroom-start' && activityState.activityCounts.bathroom >= MAX_BATHROOM_COUNT) {
+      toast({ variant: "destructive", title: "Limit Reached", description: `You have used all ${MAX_BATHROOM_COUNT} bathroom breaks.` });
+      return;
+    }
+
     setIsLogging(true);
     try {
       const activityData = {
@@ -71,35 +172,47 @@ export function TimeTrackingControls() {
       if (result.success) {
         setActivityState(prevState => {
           let nextState = { ...prevState, lastAction: type, status: newStatus };
+          let newCounts = { ...prevState.activityCounts };
+
           switch (type) {
             case 'clock-in':
               nextState.isClockedIn = true;
+              newCounts = { lunch: 0, break: 0, bathroom: 0 }; // Reset counts on clock-in
               break;
             case 'clock-out':
-              nextState.isClockedIn = false;
-              nextState.isOnLunch = false; 
-              nextState.isOnBreak = false;
-              nextState.isBathroom = false;
+              nextState = initialActivityState; // Reset everything on clock-out
+              clearAllNotificationTimers();
               break;
             case 'lunch-start':
               nextState.isOnLunch = true;
+              newCounts.lunch += 1;
+              scheduleNotification('lunch');
               break;
             case 'lunch-end':
               nextState.isOnLunch = false;
+              if (lunchNotificationTimer.current) clearTimeout(lunchNotificationTimer.current);
+              lunchNotificationTimer.current = null;
               break;
             case 'break-start':
               nextState.isOnBreak = true;
+              newCounts.break += 1;
+              scheduleNotification('break');
               break;
             case 'break-end':
               nextState.isOnBreak = false;
+              if (breakNotificationTimer.current) clearTimeout(breakNotificationTimer.current);
+              breakNotificationTimer.current = null;
               break;
             case 'bathroom-start':
               nextState.isBathroom = true;
+              newCounts.bathroom += 1;
+              // No notification for bathroom breaks by default
               break;
             case 'bathroom-end':
               nextState.isBathroom = false;
               break;
           }
+          nextState.activityCounts = newCounts;
           return nextState;
         });
         toast({
@@ -125,12 +238,6 @@ export function TimeTrackingControls() {
     }
   };
   
-  const ToastAction = ({ altText, children }: { altText: string; children: React.ReactNode }) => (
-    <Button variant="outline" size="sm" onClick={() => console.log("Undo action triggered for toast")}>
-      {children}
-    </Button>
-  );
-
   const CurrentStatusIndicator = () => {
     let IconComponent = AlertCircle;
     let textColor = "text-destructive-foreground";
@@ -210,9 +317,16 @@ export function TimeTrackingControls() {
               {user.email && <CardDescription className="text-sm text-muted-foreground">{user.email}</CardDescription>}
             </div>
           </div>
-          <Button variant="outline" onClick={signOut} size="sm" disabled={isLogging}>
-            <LogOut className="mr-2 h-4 w-4" /> Sign Out
-          </Button>
+          <div className="flex items-center gap-2">
+            {notificationPermission !== 'granted' && typeof window !== 'undefined' && 'Notification' in window && (
+              <Button variant="outline" size="sm" onClick={requestNotificationPermission} title="Enable Desktop Notifications">
+                <BellRing className="h-4 w-4" />
+              </Button>
+            )}
+            <Button variant="outline" onClick={signOut} size="sm" disabled={isLogging}>
+              <LogOut className="mr-2 h-4 w-4" /> Sign Out
+            </Button>
+          </div>
         </div>
         <div className="text-center border-t pt-4">
           <Clock className="h-10 w-10 mx-auto text-primary mb-1" />
@@ -241,7 +355,7 @@ export function TimeTrackingControls() {
               size="lg" 
               className="py-8 text-xl col-span-full"
               onClick={() => handleActivity("clock-out", "Clocked Out", "Clocked Out")}
-              disabled={isLogging}
+              disabled={isLogging || activityState.isOnLunch || activityState.isOnBreak || activityState.isBathroom}
             >
               {isLogging && activityState.lastAction === 'clock-out' ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <LogOut className="mr-2 h-6 w-6" />}
                Clock Out
@@ -251,13 +365,18 @@ export function TimeTrackingControls() {
 
         {activityState.isClockedIn && (
           <div className="space-y-4 pt-4 border-t">
+            <CardDescription className="text-center text-sm">
+                Lunch: {activityState.activityCounts.lunch}/{MAX_LUNCH_COUNT} | 
+                Breaks: {activityState.activityCounts.break}/{MAX_BREAK_COUNT} | 
+                Bathroom: {activityState.activityCounts.bathroom}/{MAX_BATHROOM_COUNT}
+            </CardDescription>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {!activityState.isOnLunch ? (
                 <Button 
                   variant="outline" 
                   size="lg" 
                   className="py-6 text-lg"
-                  disabled={activityState.isOnBreak || activityState.isBathroom || isLogging}
+                  disabled={activityState.isOnBreak || activityState.isBathroom || isLogging || activityState.activityCounts.lunch >= MAX_LUNCH_COUNT}
                   onClick={() => handleActivity("lunch-start", "Started Lunch", "On Lunch")}
                 >
                   {isLogging && activityState.lastAction === 'lunch-start' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Sandwich className="mr-2 h-5 w-5" />}
@@ -281,7 +400,7 @@ export function TimeTrackingControls() {
                   variant="outline" 
                   size="lg" 
                   className="py-6 text-lg"
-                  disabled={activityState.isOnLunch || activityState.isBathroom || isLogging}
+                  disabled={activityState.isOnLunch || activityState.isBathroom || isLogging || activityState.activityCounts.break >= MAX_BREAK_COUNT}
                   onClick={() => handleActivity("break-start", "Started Break", "On Break")}
                 >
                   {isLogging && activityState.lastAction === 'break-start' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Coffee className="mr-2 h-5 w-5" />}
@@ -307,7 +426,7 @@ export function TimeTrackingControls() {
                   variant="outline" 
                   size="lg" 
                   className="py-6 text-lg w-full"
-                  disabled={activityState.isOnLunch || activityState.isOnBreak || isLogging}
+                  disabled={activityState.isOnLunch || activityState.isOnBreak || isLogging || activityState.activityCounts.bathroom >= MAX_BATHROOM_COUNT}
                   onClick={() => handleActivity("bathroom-start", "Bathroom Break Started", "On Bathroom Break")}
                 >
                   {isLogging && activityState.lastAction === 'bathroom-start' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Waves className="mr-2 h-5 w-5" />}
@@ -332,3 +451,4 @@ export function TimeTrackingControls() {
     </Card>
   );
 }
+
