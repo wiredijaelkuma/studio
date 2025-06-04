@@ -15,21 +15,21 @@ const LogEntrySchema = z.object({
 
 export type AgentLogEntry = z.infer<typeof LogEntrySchema>;
 
-// Function to get the start and end of today in UTC ISO string format
-const getTodayDateRange = () => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0); // Start of today in local time
-  const startOfToday = today.toISOString();
+// Function to get the start and end of a given day in UTC ISO string format
+const getDateRangeForDay = (dateString?: string) => {
+  const date = dateString ? new Date(dateString) : new Date();
+  date.setUTCHours(0, 0, 0, 0); // Start of the day in UTC
+  const startOfDay = date.toISOString();
 
-  const endOfTodayDate = new Date(today);
-  endOfTodayDate.setHours(23, 59, 59, 999); // End of today in local time
-  const endOfToday = endOfTodayDate.toISOString();
+  const endOfDayDate = new Date(date);
+  endOfDayDate.setUTCHours(23, 59, 59, 999); // End of the day in UTC
+  const endOfDay = endOfDayDate.toISOString();
   
-  return { startOfToday, endOfToday };
+  return { startOfDay, endOfDay };
 };
 
 
-export async function getTodaysAgentLogs(): Promise<{ success: boolean; data?: AgentLogEntry[]; message: string }> {
+export async function getAgentLogsForDate(dateString?: string): Promise<{ success: boolean; data?: AgentLogEntry[]; message: string }> {
   try {
     const spreadsheetId = process.env.GOOGLE_SHEET_ID;
     const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
@@ -50,8 +50,6 @@ export async function getTodaysAgentLogs(): Promise<{ success: boolean; data?: A
 
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // Assuming data is in 'Sheet1' and headers are in the first row.
-    // We fetch a reasonable range, e.g., first 1000 rows. Adjust if you expect more daily logs.
     const range = 'Sheet1!A:F'; 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
@@ -66,30 +64,26 @@ export async function getTodaysAgentLogs(): Promise<{ success: boolean; data?: A
 
     const headerRow = rows[0];
     const expectedHeaders = ['Timestamp', 'Agent ID', 'Agent Email', 'Agent Name', 'Activity Type', 'Status Message'];
-    const headersMatch = headerRow.every((header, index) => header === expectedHeaders[index]);
-
-    if (!headersMatch) {
-        console.warn("Sheet headers do not match expected. Assuming order: Timestamp, Agent ID, Agent Email, Agent Name, Activity Type, Status Message");
-        // Potentially return error or attempt to process based on assumed order.
-        // For now, we'll proceed assuming the order is correct even if headers are different.
+    // Basic check for first header
+    if (headerRow[0] !== expectedHeaders[0]) {
+        console.warn("Sheet headers might not match expected. Assuming order: Timestamp, Agent ID, Agent Email, Agent Name, Activity Type, Status Message");
     }
     
     const logs: AgentLogEntry[] = [];
-    const { startOfToday, endOfToday } = getTodayDateRange();
+    const { startOfDay, endOfDay } = getDateRangeForDay(dateString);
 
-    // Start from the second row (index 1) to skip headers
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      // Ensure row has enough columns to prevent errors
       if (row.length < 6) continue; 
 
-      const logTimestamp = row[0]; // Assuming Timestamp is in the first column
+      const logTimestampISO = row[0]; 
       
-      // Basic check if logTimestamp is a valid date string before parsing
-      if (logTimestamp && typeof logTimestamp === 'string' && !isNaN(new Date(logTimestamp).getTime())) {
-        if (logTimestamp >= startOfToday && logTimestamp <= endOfToday) {
+      if (logTimestampISO && typeof logTimestampISO === 'string' && !isNaN(new Date(logTimestampISO).getTime())) {
+        // Compare ISO strings directly for UTC dates
+        if (logTimestampISO >= startOfDay && logTimestampISO <= endOfDay) {
           const entry: AgentLogEntry = {
-            timestamp: new Date(logTimestamp).toLocaleString(), // Format for display
+            // Display timestamp in local time for readability
+            timestamp: new Date(logTimestampISO).toLocaleString(), 
             agentId: row[1] || '',
             agentEmail: row[2] || '',
             agentName: row[3] || '',
@@ -99,11 +93,11 @@ export async function getTodaysAgentLogs(): Promise<{ success: boolean; data?: A
           logs.push(entry);
         }
       } else {
-        console.warn(`Skipping row ${i+1} due to invalid or missing timestamp: ${logTimestamp}`);
+        console.warn(`Skipping row ${i+1} due to invalid or missing timestamp: ${logTimestampISO}`);
       }
     }
 
-    return { success: true, data: logs.reverse(), message: 'Successfully fetched today\'s logs.' }; // Reverse to show newest first
+    return { success: true, data: logs.reverse(), message: 'Successfully fetched logs for the selected date.' };
   } catch (error) {
     console.error('Error fetching logs from Google Sheet:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);

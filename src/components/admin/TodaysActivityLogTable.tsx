@@ -13,12 +13,14 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
+import { format } from "date-fns";
 
 interface TodaysActivityLogTableProps {
   logs: AgentLogEntry[];
+  selectedDate: Date; // Add selectedDate prop
 }
 
-export function TodaysActivityLogTable({ logs }: TodaysActivityLogTableProps) {
+export function TodaysActivityLogTable({ logs, selectedDate }: TodaysActivityLogTableProps) {
 
   const downloadCSV = () => {
     if (!logs || logs.length === 0) return;
@@ -27,7 +29,7 @@ export function TodaysActivityLogTable({ logs }: TodaysActivityLogTableProps) {
     const csvRows = [
       headers.join(','),
       ...logs.map(log => [
-        `"${log.timestamp.replace(/"/g, '""')}"`, // Escape double quotes
+        `"${log.timestamp.replace(/"/g, '""')}"`, 
         `"${(log.agentName || 'N/A').replace(/"/g, '""')}"`,
         `"${(log.agentEmail || 'N/A').replace(/"/g, '""')}"`,
         `"${log.activityType.replace(/"/g, '""')}"`,
@@ -41,8 +43,9 @@ export function TodaysActivityLogTable({ logs }: TodaysActivityLogTableProps) {
     if (link.download !== undefined) {
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      const today = new Date().toISOString().split('T')[0];
-      link.setAttribute('download', `agent_activity_logs_${today}.csv`);
+      // Use the selectedDate for the filename
+      const dateString = format(selectedDate, "yyyy-MM-dd");
+      link.setAttribute('download', `agent_activity_logs_${dateString}.csv`);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
@@ -52,7 +55,9 @@ export function TodaysActivityLogTable({ logs }: TodaysActivityLogTableProps) {
   };
 
   if (!logs || logs.length === 0) {
-    return <p className="text-muted-foreground p-4 text-center">No activities logged for today yet.</p>;
+    // This case should ideally be handled by the parent component (AdminDashboardPage)
+    // But as a fallback:
+    return <p className="text-muted-foreground p-4 text-center">No activities logged for the selected date.</p>;
   }
 
   return (
@@ -76,7 +81,7 @@ export function TodaysActivityLogTable({ logs }: TodaysActivityLogTableProps) {
           </TableHeader>
           <TableBody>
             {logs.map((log, index) => (
-              <TableRow key={index} className="hover:bg-muted/so">
+              <TableRow key={index} className="hover:bg-muted/50">
                 <TableCell>{log.timestamp}</TableCell>
                 <TableCell className="font-medium">{log.agentName || 'N/A'}</TableCell>
                 <TableCell>{log.agentEmail || 'N/A'}</TableCell>
@@ -90,4 +95,3 @@ export function TodaysActivityLogTable({ logs }: TodaysActivityLogTableProps) {
     </div>
   );
 }
-
