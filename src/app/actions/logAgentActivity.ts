@@ -16,14 +16,55 @@ const LogAgentActivityInputSchema = z.object({
 
 type LogAgentActivityInput = z.infer<typeof LogAgentActivityInputSchema>;
 
+const EXPECTED_HEADERS = ['Timestamp', 'Agent ID', 'Agent Email', 'Agent Name', 'Activity Type', 'Status Message'];
+
+async function ensureSheetHeaders(sheets: any, spreadsheetId: string): Promise<void> {
+  try {
+    const headerRange = 'Sheet1!A1:F1';
+    const getResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: headerRange,
+    });
+
+    const currentHeaders = getResponse.data.values?.[0];
+    let headersMatch = false;
+    if (currentHeaders && currentHeaders.length > 0) {
+      headersMatch = currentHeaders.every((header, index) => header === EXPECTED_HEADERS[index]);
+    }
+
+    if (!headersMatch) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: 'Sheet1!A1', // Update starting from A1, it will overwrite enough cells for the new headers
+        valueInputOption: 'USER_ENTERED',
+        requestBody: {
+          values: [EXPECTED_HEADERS],
+        },
+      });
+      console.log('Google Sheet headers written/updated.');
+    }
+  } catch (error) {
+    console.error('Error ensuring Google Sheet headers:', error);
+    // We'll let the main function handle the error reporting to the user
+    // but throw it so it can be caught by the main try-catch block.
+    throw new Error(`Failed to ensure sheet headers: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
 export async function logAgentActivity(
   input: LogAgentActivityInput
 ): Promise<{ success: boolean; message: string }> {
   try {
     const validationResult = LogAgentActivityInputSchema.safeParse(input);
     if (!validationResult.success) {
-      console.error('Invalid input for logAgentActivity:', validationResult.error.flatten());
-      return { success: false, message: `Invalid input: ${validationResult.error.flatten().fieldErrors}` };
+      const errorDetails = validationResult.error.flatten();
+      console.error('Invalid input for logAgentActivity:', errorDetails);
+      // Concatenate field errors for a more informative message
+      let errorMessage = "Invalid input: ";
+      for (const field in errorDetails.fieldErrors) {
+        errorMessage += `${field}: ${errorDetails.fieldErrors[field]?.join(', ')}; `;
+      }
+      return { success: false, message: errorMessage.trim() };
     }
 
     const { userId, userEmail, userName, activityType, timestamp, statusMessage } = validationResult.data;
@@ -34,7 +75,7 @@ export async function logAgentActivity(
 
     if (!spreadsheetId || !serviceAccountEmail || !privateKey) {
       console.error('Google Sheets API credentials or Sheet ID are not configured in .env');
-      return { success: false, message: 'Server configuration error for Google Sheets.' };
+      return { success: false, message: 'Server configuration error for Google Sheets. Please check .env variables.' };
     }
 
     const auth = new google.auth.GoogleAuth({
@@ -47,23 +88,26 @@ export async function logAgentActivity(
 
     const sheets = google.sheets({ version: 'v4', auth });
 
-    const range = 'Sheet1!A:F'; // Assuming Sheet1 and columns A-F. Adjust as needed.
-    // Columns: Timestamp, Agent ID, Agent Email, Agent Name, Activity Type, Status Message
-    const values = [[timestamp, userId, userEmail ?? '', userName ?? '', activityType, statusMessage]];
+    // Ensure headers are present
+    await ensureSheetHeaders(sheets, spreadsheetId);
+
+    const dataAppendRange = 'Sheet1!A:F'; // Append to the whole sheet, it will find the next empty row in A:F
+    const valuesToAppend = [[timestamp, userId, userEmail ?? '', userName ?? '', activityType, statusMessage]];
 
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range,
+      range: dataAppendRange,
       valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS', // This is better for appending
       requestBody: {
-        values,
+        values: valuesToAppend,
       },
     });
 
     return { success: true, message: 'Activity logged to Google Sheet.' };
   } catch (error) {
     console.error('Error logging activity to Google Sheet:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return { success: false, message: `Failed to log activity: ${errorMessage}` };
   }
 }
