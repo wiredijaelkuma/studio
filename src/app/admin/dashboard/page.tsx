@@ -16,23 +16,23 @@ export default async function AdminDashboardPage() {
         <p className="text-muted-foreground">Overview of agent activity and adherence.</p>
       </div>
 
-      <AgentStatusSummary todaysLogs={todaysLogs} />
+      <AgentStatusSummary /> {/* Removed todaysLogs prop */}
 
       <Card className="shadow-lg">
         <CardHeader>
-          <CardTitle className="text-2xl font-headline">Today's Activity Log</CardTitle>
-          <CardDescription>Raw activity logs from agents for the current day.</CardDescription>
+          <CardTitle className="text-2xl font-headline">Today's Activity Log (from Google Sheet)</CardTitle>
+          <CardDescription>Raw activity logs from agents for the current day, sourced from Google Sheets.</CardDescription>
         </CardHeader>
         <CardContent>
           {!success && (
             <div className="flex items-center gap-2 p-4 rounded-md bg-destructive/10 text-destructive border border-destructive/30">
               <AlertTriangle className="h-5 w-5" />
-              <p>Error fetching today's logs: {message}</p>
+              <p>Error fetching today's logs from Google Sheet: {message}</p>
             </div>
           )}
           {success && todaysLogs && <TodaysActivityLogTable logs={todaysLogs} />}
           {success && (!todaysLogs || todaysLogs.length === 0) && (
-             <p className="text-muted-foreground p-4 text-center">No activities logged for today yet.</p>
+             <p className="text-muted-foreground p-4 text-center">No activities logged to Google Sheet for today yet.</p>
           )}
         </CardContent>
       </Card>

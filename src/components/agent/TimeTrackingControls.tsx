@@ -10,6 +10,8 @@ import { useToast } from "@/hooks/use-toast";
 import type { AgentActivityType } from "@/lib/types";
 import { useAuth } from '@/contexts/AuthContext';
 import { logAgentActivity } from '@/app/actions/logAgentActivity';
+import { db } from '@/lib/firebase/config'; // Added
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore'; // Added
 
 // Configuration for activity limits and notifications
 const LUNCH_DURATION_MINUTES = 30;
@@ -38,7 +40,7 @@ interface ActivityState {
 
 export function TimeTrackingControls() {
   const { toast } = useToast();
-  const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
+  const { user, loading: authLoading, signInWithGoogle, signOut: firebaseSignOut } = useAuth(); // Renamed signOut to firebaseSignOut
   const [currentTime, setCurrentTime] = useState(new Date());
   
   const initialActivityState: ActivityState = {
@@ -72,13 +74,10 @@ export function TimeTrackingControls() {
       setActivityState(initialActivityState);
       clearAllNotificationTimers();
     } else {
-      // When user logs in, if they were previously clocked in (e.g. reloaded page),
-      // this state would be lost. For simplicity, we reset to initial state.
-      // A more robust solution would involve storing/retrieving state from localStorage or backend.
        setActivityState(prevState => ({
         ...initialActivityState,
-        status: prevState.isClockedIn ? prevState.status : "Clocked Out", // Keep status if somehow still clocked in
-        isClockedIn: prevState.isClockedIn, // Persist if needed, but generally reset
+        status: prevState.isClockedIn ? prevState.status : "Clocked Out",
+        isClockedIn: prevState.isClockedIn,
       }));
     }
   }, [user]);
@@ -102,7 +101,7 @@ export function TimeTrackingControls() {
 
   const showDesktopNotification = (title: string, body: string) => {
     if (notificationPermission === 'granted') {
-      new Notification(title, { body, icon: '/favicon.ico' }); // Ensure you have a favicon.ico in public
+      new Notification(title, { body, icon: '/favicon.ico' }); 
     }
   };
 
@@ -114,7 +113,7 @@ export function TimeTrackingControls() {
   };
 
   const scheduleNotification = (type: 'lunch' | 'break') => {
-    clearAllNotificationTimers(); // Clear any existing timers first
+    clearAllNotificationTimers(); 
 
     const duration = type === 'lunch' ? LUNCH_DURATION_MINUTES : BREAK_DURATION_MINUTES;
     const totalDurationMs = (duration + NOTIFICATION_GRACE_PERIOD_MINUTES) * 60 * 1000;
@@ -135,6 +134,27 @@ export function TimeTrackingControls() {
     }
   };
 
+  const updateFirestoreStatus = async (newStatus: string) => {
+    if (!user) return;
+    try {
+      const statusDocRef = doc(db, 'agentStatuses', user.uid);
+      await setDoc(statusDocRef, {
+        agentId: user.uid,
+        agentEmail: user.email,
+        agentName: user.displayName,
+        photoURL: user.photoURL,
+        currentStatus: newStatus,
+        lastUpdate: serverTimestamp(),
+      }, { merge: true }); // Use merge to create or update
+    } catch (error) {
+      console.error("Error updating Firestore status:", error);
+      toast({
+        variant: "destructive",
+        title: "Firestore Update Failed",
+        description: "Could not update your status in real-time system.",
+      });
+    }
+  };
 
   const handleActivity = async (type: AgentActivityType, message: string, newStatus: string) => {
     if (!user) {
@@ -142,7 +162,6 @@ export function TimeTrackingControls() {
       return;
     }
 
-    // Check activity limits
     if (type === 'lunch-start' && activityState.activityCounts.lunch >= MAX_LUNCH_COUNT) {
       toast({ variant: "destructive", title: "Limit Reached", description: `You can only take ${MAX_LUNCH_COUNT} lunch break(s).` });
       return;
@@ -157,6 +176,7 @@ export function TimeTrackingControls() {
     }
 
     setIsLogging(true);
+    let sheetLogSuccess = false;
     try {
       const activityData = {
         userId: user.uid,
@@ -168,6 +188,7 @@ export function TimeTrackingControls() {
       };
       
       const result = await logAgentActivity(activityData);
+      sheetLogSuccess = result.success;
 
       if (result.success) {
         setActivityState(prevState => {
@@ -177,10 +198,10 @@ export function TimeTrackingControls() {
           switch (type) {
             case 'clock-in':
               nextState.isClockedIn = true;
-              newCounts = { lunch: 0, break: 0, bathroom: 0 }; // Reset counts on clock-in
+              newCounts = { lunch: 0, break: 0, bathroom: 0 }; 
               break;
             case 'clock-out':
-              nextState = initialActivityState; // Reset everything on clock-out
+              nextState = initialActivityState; 
               clearAllNotificationTimers();
               break;
             case 'lunch-start':
@@ -206,7 +227,6 @@ export function TimeTrackingControls() {
             case 'bathroom-start':
               nextState.isBathroom = true;
               newCounts.bathroom += 1;
-              // No notification for bathroom breaks by default
               break;
             case 'bathroom-end':
               nextState.isBathroom = false;
@@ -222,22 +242,38 @@ export function TimeTrackingControls() {
       } else {
         toast({
           variant: "destructive",
-          title: "Logging Failed",
+          title: "Sheet Logging Failed",
           description: result.message || "Could not log activity to Google Sheet.",
         });
       }
     } catch (error) {
-      console.error("Error in handleActivity:", error);
+      console.error("Error in handleActivity (Sheet Logging):", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "An unexpected error occurred while logging activity.",
+        description: "An unexpected error occurred while logging activity to sheet.",
       });
     } finally {
       setIsLogging(false);
     }
+
+    // Update Firestore status regardless of sheet logging outcome for now,
+    // but ideally, this would be more transactional or contingent on primary log success.
+    if (user) {
+      await updateFirestoreStatus(newStatus);
+    }
   };
   
+  const handleSignOut = async () => {
+    if (user && activityState.isClockedIn) {
+       // If clocked in, first log a clock-out event to Firestore and Google Sheet
+       await handleActivity("clock-out", "Clocked Out before Sign Out", "Clocked Out");
+    }
+    await firebaseSignOut(); // Then proceed with Firebase sign out
+    // AuthContext useEffect will handle UI reset
+  };
+
+
   const CurrentStatusIndicator = () => {
     let IconComponent = AlertCircle;
     let textColor = "text-destructive-foreground";
@@ -323,7 +359,7 @@ export function TimeTrackingControls() {
                 <BellRing className="h-4 w-4" />
               </Button>
             )}
-            <Button variant="outline" onClick={signOut} size="sm" disabled={isLogging}>
+            <Button variant="outline" onClick={handleSignOut} size="sm" disabled={isLogging}>
               <LogOut className="mr-2 h-4 w-4" /> Sign Out
             </Button>
           </div>
