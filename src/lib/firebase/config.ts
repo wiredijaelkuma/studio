@@ -11,6 +11,17 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
+// Check if essential config values are present
+if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
+  let missingVars = [];
+  if (!firebaseConfig.apiKey) missingVars.push('NEXT_PUBLIC_FIREBASE_API_KEY');
+  if (!firebaseConfig.projectId) missingVars.push('NEXT_PUBLIC_FIREBASE_PROJECT_ID');
+  
+  throw new Error(
+    `Firebase configuration error: The following environment variable(s) are missing: ${missingVars.join(', ')}. Please check your .env file and ensure they are set correctly. You need to restart your development server after updating the .env file.`
+  );
+}
+
 let app: FirebaseApp;
 if (!getApps().length) {
   app = initializeApp(firebaseConfig);
@@ -22,3 +33,4 @@ const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 
 export { app, auth, googleProvider };
+
