@@ -16,7 +16,7 @@ export default async function AdminDashboardPage() {
         <p className="text-muted-foreground">Overview of agent activity and adherence.</p>
       </div>
 
-      <AgentStatusSummary />
+      <AgentStatusSummary todaysLogs={todaysLogs} />
 
       <Card className="shadow-lg">
         <CardHeader>
@@ -63,3 +63,4 @@ export default async function AdminDashboardPage() {
     </div>
   );
 }
+
