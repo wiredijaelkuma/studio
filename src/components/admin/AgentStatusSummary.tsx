@@ -6,22 +6,24 @@ import { Users, Coffee, Sandwich, UserCheck, UserX, Waves, Loader2 } from "lucid
 import { useEffect, useState } from "react";
 import { db } from '@/lib/firebase/config';
 import { collection, onSnapshot, query, type Timestamp } from 'firebase/firestore';
+import { cn } from "@/lib/utils"; // Import cn utility
 
 interface StatusCardProps {
   title: string;
   value: number | string;
   icon: React.ElementType;
   color?: string;
+  valueClassName?: string; // Added for custom styling of the value
 }
 
-const StatusCard: React.FC<StatusCardProps> = ({ title, value, icon: Icon, color = "text-primary" }) => (
+const StatusCard: React.FC<StatusCardProps> = ({ title, value, icon: Icon, color = "text-primary", valueClassName }) => (
   <Card className="shadow-md hover:shadow-lg transition-shadow">
     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
       <CardTitle className="text-sm font-medium">{title}</CardTitle>
       <Icon className={`h-5 w-5 ${color}`} />
     </CardHeader>
     <CardContent>
-      <div className="text-3xl font-bold">{value}</div>
+      <div className={cn("text-3xl font-bold", valueClassName)}>{value}</div>
     </CardContent>
   </Card>
 );
@@ -31,7 +33,7 @@ interface FirestoreAgentStatus {
   agentEmail?: string;
   agentName?: string;
   currentStatus: string;
-  lastUpdate: Timestamp | {toDate: () => Date}; // Firestore Timestamp or an object that can be converted
+  lastUpdate: Timestamp | {toDate: () => Date}; 
   photoURL?: string;
 }
 
@@ -79,21 +81,19 @@ export function AgentStatusSummary() {
             onBathroomAgents++;
             break;
           case "Clocked Out":
+          case "Offline": // Consider "Offline" also as clocked out for summary
             clockedOutAgents++;
             break;
           default:
-            // Could be an unknown state, or an agent who is implicitly active but not explicitly "Working"
-            // For now, we only count explicitly set statuses.
+            // Agents not in any of the above explicit states but present in agentStatuses
+            // might be considered "monitored but idle" or similar.
+            // For now, we only count explicitly.
             break;
         }
       });
       
-      // If an agent's status is not "Clocked Out" and not any of the break types, they are considered working.
-      // This might need refinement based on how "Clocked In - Working" vs other "active" states are set.
-      // For this summary, 'workingAgents' now includes "Clocked In - Working". "On Bathroom Break" is separate.
-
       setSummaryData({
-        totalMonitoredAgents: statuses.length,
+        totalMonitoredAgents: statuses.length, // Total documents in agentStatuses
         workingAgents,
         onLunchAgents,
         onBreakAgents,
@@ -110,6 +110,12 @@ export function AgentStatusSummary() {
 
     return () => unsubscribe();
   }, []);
+
+  const getWorkingAgentsColorClass = (count: number): string => {
+    if (count >= 7) return "text-green-600"; // Green for 7+
+    if (count >= 5 && count <= 6) return "text-yellow-500"; // Yellow for 5-6
+    return "text-red-600"; // Red for below 5
+  };
 
   if (loading) {
     return (
@@ -137,27 +143,23 @@ export function AgentStatusSummary() {
     return <p className="text-muted-foreground text-center py-4">No agent status data available.</p>;
   }
   
-  // Calculate total active (not clocked out) agents for the "Total Monitored Agents" card title,
-  // or simply use totalMonitoredAgents for the number of agents we have status for.
-  // Let's use totalMonitoredAgents as the count of agents whose status is being tracked.
   const activelyTracked = summaryData.totalMonitoredAgents; 
 
-
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"> {/* Adjusted to 5 columns */}
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       <StatusCard title="Monitored Agents" value={activelyTracked} icon={Users} />
-      <StatusCard title="Working" value={summaryData.workingAgents} icon={UserCheck} color="text-accent" />
+      <StatusCard 
+        title="Working" 
+        value={summaryData.workingAgents} 
+        icon={UserCheck} 
+        color="text-accent" // Icon color
+        valueClassName={getWorkingAgentsColorClass(summaryData.workingAgents)} // Value color
+      />
       <StatusCard title="On Lunch" value={summaryData.onLunchAgents} icon={Sandwich} color="text-orange-500" /> 
       <StatusCard title="On Break" value={summaryData.onBreakAgents} icon={Coffee} color="text-yellow-500" />
       <StatusCard title="Bathroom Break" value={summaryData.onBathroomAgents} icon={Waves} color="text-blue-400" />
-      {/* Clocked out is implicitly totalMonitored - (working + lunch + break + bathroom) OR summaryData.clockedOutAgents */}
-      {/* Let's display clockedOutAgents directly as it's clearer */}
+      {/* Displaying Clocked Out agents could also be useful if there's space */}
       {/* <StatusCard title="Clocked Out" value={summaryData.clockedOutAgents} icon={UserX} color="text-slate-500" /> */}
-       {/* The sum of (Working, Lunch, Break, Bathroom, ClockedOut) should ideally equal TotalMonitoredAgents.
-           If there are discrepancies, it might mean some agents have statuses not covered by these categories.
-           For now, we'll show up to 5 main status cards.
-        */}
     </div>
   );
 }
-
