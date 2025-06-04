@@ -29,7 +29,7 @@ async function ensureSheetHeaders(sheets: any, spreadsheetId: string): Promise<v
     const currentHeaders = getResponse.data.values?.[0];
     let headersMatch = false;
     if (currentHeaders && currentHeaders.length > 0) {
-      headersMatch = currentHeaders.every((header, index) => header === EXPECTED_HEADERS[index]);
+      headersMatch = currentHeaders.every((header: string, index: number) => header === EXPECTED_HEADERS[index]);
     }
 
     if (!headersMatch) {
@@ -62,6 +62,7 @@ export async function logAgentActivity(
       // Concatenate field errors for a more informative message
       let errorMessage = "Invalid input: ";
       for (const field in errorDetails.fieldErrors) {
+        // @ts-ignore
         errorMessage += `${field}: ${errorDetails.fieldErrors[field]?.join(', ')}; `;
       }
       return { success: false, message: errorMessage.trim() };
