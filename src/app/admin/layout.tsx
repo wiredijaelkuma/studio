@@ -1,3 +1,4 @@
+
 import { AdminSidebar } from '@/components/layout/AdminSidebar';
 import { SidebarProvider, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
 import { AppHeader } from '@/components/layout/AppHeader'; // Using a simplified header for admin area as well

@@ -1,66 +1,71 @@
-import { ActivityChart } from "@/components/admin/ActivityChart";
-import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+"use client";
 
-export default function AdminActivityPage() {
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import {
+  Sidebar,
+  SidebarHeader,
+  SidebarContent,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarFooter,
+} from '@/components/ui/sidebar';
+import { Button } from '@/components/ui/button';
+import { ShieldCheck, LayoutDashboard, LogOut } from 'lucide-react'; // Removed BarChart3
+
+const menuItems = [
+  { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  // Add more admin pages here
+  // { href: '/admin/settings', label: 'Settings', icon: Settings },
+];
+
+export function AdminSidebar() {
+  const pathname = usePathname();
+
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-headline font-bold text-foreground">Activity Visualization</h1>
-        <p className="text-muted-foreground">Analyze agent activity patterns through charts and graphs.</p>
-      </div>
-
-      <Card className="shadow-md">
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
-              <CardTitle className="text-xl font-headline">Filters</CardTitle>
-              <CardDescription>Select criteria to refine activity data.</CardDescription>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              <Select defaultValue="weekly">
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Select period" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="daily">Daily</SelectItem>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Select team" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Teams</SelectItem>
-                  <SelectItem value="alpha">Team Alpha</SelectItem>
-                  <SelectItem value="bravo">Team Bravo</SelectItem>
-                  <SelectItem value="charlie">Team Charlie</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button>Apply Filters</Button>
-            </div>
-          </div>
-        </CardHeader>
-      </Card>
-
-      <ActivityChart />
-
-      {/* Placeholder for more charts */}
-      {/*
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>Daily Trends</CardTitle></CardHeader>
-          <CardContent><p>Chart for daily activity trends...</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>Agent Comparison</CardTitle></CardHeader>
-          <CardContent><p>Chart comparing activity across agents...</p></CardContent>
-        </Card>
-      </div>
-      */}
-    </div>
+    <Sidebar side="left" variant="sidebar" collapsible="icon">
+      <SidebarHeader className="p-4 border-b border-sidebar-border">
+        <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+          <ShieldCheck className="h-8 w-8 text-sidebar-primary flex-shrink-0" />
+          <h2 className="text-xl font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden font-headline">
+            AgentAlly Admin
+          </h2>
+        </div>
+      </SidebarHeader>
+      <SidebarContent className="flex-grow p-2">
+        <SidebarMenu>
+          {menuItems.map((item) => (
+            <SidebarMenuItem key={item.href}>
+              <Link href={item.href} legacyBehavior passHref>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === item.href || (item.href !== '/admin/dashboard' && pathname.startsWith(item.href))}
+                  tooltip={{ children: item.label, side: 'right', align: 'center' }}
+                  className="justify-start"
+                >
+                  <a>
+                    <item.icon className="h-5 w-5 flex-shrink-0" />
+                    <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
+                  </a>
+                </SidebarMenuButton>
+              </Link>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarContent>
+      <SidebarFooter className="p-4 border-t border-sidebar-border mt-auto">
+        <Link href="/" passHref legacyBehavior>
+           <Button variant="outline" className="w-full group-data-[collapsible=icon]:hidden">
+            <LogOut className="mr-2 h-4 w-4" /> Exit Admin
+           </Button>
+        </Link>
+         <Link href="/" passHref legacyBehavior>
+             <Button variant="ghost" size="icon" className="w-full hidden group-data-[collapsible=icon]:flex justify-center">
+                <LogOut className="h-5 w-5" />
+             </Button>
+        </Link>
+      </SidebarFooter>
+    </Sidebar>
   );
 }

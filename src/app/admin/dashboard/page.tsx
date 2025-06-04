@@ -6,16 +6,18 @@ import { AgentStatusSummary } from "@/components/admin/AgentStatusSummary";
 import { AdherenceAlertsTable } from "@/components/admin/AdherenceAlertsTable";
 import { TodaysActivityLogTable } from "@/components/admin/TodaysActivityLogTable";
 import { LiveAgentStatusTable } from "@/components/admin/LiveAgentStatusTable";
-import { HistoricalAdherenceViolationsTable } from "@/components/admin/HistoricalAdherenceViolationsTable"; // Added
-import { ActivityChart } from "@/components/admin/ActivityChart"; // Added
+import { HistoricalAdherenceViolationsTable } from "@/components/admin/HistoricalAdherenceViolationsTable";
+import { ActivityChart } from "@/components/admin/ActivityChart";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { getAgentLogsForDate } from "@/app/actions/getTodaysAgentLogs"; // Renamed import
-import type { AgentLogEntry } from "@/app/actions/getTodaysAgentLogs"; // Path updated for clarity
+import { getAgentLogsForDate } from "@/app/actions/getTodaysAgentLogs";
+import { saveLogsToDrive } from "@/app/actions/saveLogsToDrive"; // Added
+import type { AgentLogEntry } from "@/app/actions/getTodaysAgentLogs";
 import { db } from '@/lib/firebase/config';
 import { collection, getDocs } from 'firebase/firestore';
 import type { AgentStatusFirestore } from "@/lib/types";
+import { useToast } from "@/hooks/use-toast"; // Added
 
-import { AlertTriangle, CalendarClock, CalendarIcon, FileText, Loader2, Users, BarChartHorizontalBig } from "lucide-react"; // Added BarChartHorizontalBig
+import { AlertTriangle, CalendarClock, CalendarIcon, FileText, Loader2, Users, BarChartHorizontalBig, HardDriveDownload } from "lucide-react"; // Added HardDriveDownload
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -41,6 +43,8 @@ export default function AdminDashboardPage() {
 
   const [availableAgents, setAvailableAgents] = useState<AgentFilterChoice[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>("all");
+  const [isSavingToDrive, setIsSavingToDrive] = useState(false); // Added
+  const { toast } = useToast(); // Added
 
   useEffect(() => {
     async function fetchAgentsForFilter() {
@@ -69,7 +73,7 @@ export default function AdminDashboardPage() {
       setLogFetchMessage(null);
       setLogFetchSuccess(true);
 
-      const dateToFetchISO = selectedDate.toISOString().split('T')[0]; // Pass YYYY-MM-DD
+      const dateToFetchISO = selectedDate.toISOString().split('T')[0];
       const agentIdToFilter = selectedAgentId === "all" ? undefined : selectedAgentId;
 
       const { success, data, message } = await getAgentLogsForDate(dateToFetchISO, agentIdToFilter);
@@ -84,6 +88,38 @@ export default function AdminDashboardPage() {
     }
     fetchLogs();
   }, [selectedDate, selectedAgentId]);
+
+  const handleSaveToDrive = async () => {
+    if (!selectedDate) {
+      toast({ variant: "destructive", title: "Error", description: "Please select a date first." });
+      return;
+    }
+    setIsSavingToDrive(true);
+    const dateToSaveISO = selectedDate.toISOString().split('T')[0];
+    const agentIdToFilter = selectedAgentId === "all" ? undefined : selectedAgentId;
+    const agentNameToFilter = selectedAgentId === "all" ? "All Agents" : availableAgents.find(a => a.id === selectedAgentId)?.name;
+
+    const result = await saveLogsToDrive(dateToSaveISO, agentIdToFilter, agentNameToFilter);
+    if (result.success) {
+      toast({
+        title: "Success",
+        description: (
+          <div>
+            {result.message}
+            {result.fileLink && (
+              <a href={result.fileLink} target="_blank" rel="noopener noreferrer" className="underline ml-1 text-primary">
+                View File
+              </a>
+            )}
+          </div>
+        ),
+        duration: 7000,
+      });
+    } else {
+      toast({ variant: "destructive", title: "Error Saving to Drive", description: result.message, duration: 7000 });
+    }
+    setIsSavingToDrive(false);
+  };
 
   return (
     <div className="space-y-8">
@@ -188,7 +224,16 @@ export default function AdminDashboardPage() {
                   ))}
                 </SelectContent>
               </Select>
-              {/* Date picker moved to top of page */}
+              <Button 
+                onClick={handleSaveToDrive} 
+                variant="outline" 
+                size="sm" 
+                disabled={isSavingToDrive || isLoadingLogs || !logFetchSuccess || logsForDate.length === 0}
+                className="w-full sm:w-auto"
+              >
+                {isSavingToDrive ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <HardDriveDownload className="mr-2 h-4 w-4" />}
+                Save to Drive
+              </Button>
             </div>
           </div>
         </CardHeader>

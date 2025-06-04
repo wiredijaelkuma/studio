@@ -13,11 +13,10 @@ import {
   SidebarFooter,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { ShieldCheck, LayoutDashboard, BarChart3, LogOut } from 'lucide-react';
+import { ShieldCheck, LayoutDashboard, LogOut } from 'lucide-react'; // Removed BarChart3
 
 const menuItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin/activity', label: 'Activity Visualization', icon: BarChart3 },
   // Add more admin pages here
   // { href: '/admin/settings', label: 'Settings', icon: Settings },
 ];
