@@ -9,6 +9,7 @@ import { Clock, LogIn, LogOut, Sandwich, Coffee, UserRound, Waves, CheckCircle2,
 import { useToast } from "@/hooks/use-toast";
 import type { AgentActivityType } from "@/lib/types";
 import { useAuth } from '@/contexts/AuthContext';
+import { logAgentActivity } from '@/app/actions/logAgentActivity'; // Added
 
 interface ActivityState {
   status: string;
@@ -30,6 +31,7 @@ export function TimeTrackingControls() {
     isOnBreak: false,
     isBathroom: false,
   });
+  const [isLogging, setIsLogging] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -37,7 +39,6 @@ export function TimeTrackingControls() {
   }, []);
 
   useEffect(() => {
-    // Reset activity state if user logs out or changes
     if (!user) {
       setActivityState({
         status: "Clocked Out",
@@ -49,53 +50,79 @@ export function TimeTrackingControls() {
     }
   }, [user]);
 
-  const handleActivity = (type: AgentActivityType, message: string, newStatus: string) => {
+  const handleActivity = async (type: AgentActivityType, message: string, newStatus: string) => {
     if (!user) {
       toast({ variant: "destructive", title: "Not Signed In", description: "Please sign in to log activity." });
       return;
     }
-    // Here you would typically send data to a backend/Firebase, associated with user.uid
-    console.log(`Activity: ${type} by ${user.uid} at ${new Date().toISOString()}`);
-    
-    setActivityState(prevState => {
-      let nextState = { ...prevState, lastAction: type, status: newStatus };
-      switch (type) {
-        case 'clock-in':
-          nextState.isClockedIn = true;
-          break;
-        case 'clock-out':
-          nextState.isClockedIn = false;
-          nextState.isOnLunch = false; 
-          nextState.isOnBreak = false;
-          nextState.isBathroom = false;
-          break;
-        case 'lunch-start':
-          nextState.isOnLunch = true;
-          break;
-        case 'lunch-end':
-          nextState.isOnLunch = false;
-          break;
-        case 'break-start':
-          nextState.isOnBreak = true;
-          break;
-        case 'break-end':
-          nextState.isOnBreak = false;
-          break;
-        case 'bathroom-start':
-          nextState.isBathroom = true;
-          break;
-        case 'bathroom-end':
-          nextState.isBathroom = false;
-          break;
-      }
-      return nextState;
-    });
+    setIsLogging(true);
+    try {
+      const activityData = {
+        userId: user.uid,
+        userEmail: user.email,
+        userName: user.displayName,
+        activityType: type,
+        timestamp: new Date().toISOString(),
+        statusMessage: newStatus,
+      };
+      
+      const result = await logAgentActivity(activityData);
 
-    toast({
-      title: "Activity Logged",
-      description: `${message} at ${new Date().toLocaleTimeString()}`,
-      action: <ToastAction altText="Undo">Undo</ToastAction>,
-    });
+      if (result.success) {
+        setActivityState(prevState => {
+          let nextState = { ...prevState, lastAction: type, status: newStatus };
+          switch (type) {
+            case 'clock-in':
+              nextState.isClockedIn = true;
+              break;
+            case 'clock-out':
+              nextState.isClockedIn = false;
+              nextState.isOnLunch = false; 
+              nextState.isOnBreak = false;
+              nextState.isBathroom = false;
+              break;
+            case 'lunch-start':
+              nextState.isOnLunch = true;
+              break;
+            case 'lunch-end':
+              nextState.isOnLunch = false;
+              break;
+            case 'break-start':
+              nextState.isOnBreak = true;
+              break;
+            case 'break-end':
+              nextState.isOnBreak = false;
+              break;
+            case 'bathroom-start':
+              nextState.isBathroom = true;
+              break;
+            case 'bathroom-end':
+              nextState.isBathroom = false;
+              break;
+          }
+          return nextState;
+        });
+        toast({
+          title: "Activity Logged",
+          description: `${message} at ${new Date().toLocaleTimeString()}. Data sent to sheet.`,
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Logging Failed",
+          description: result.message || "Could not log activity to Google Sheet.",
+        });
+      }
+    } catch (error) {
+      console.error("Error in handleActivity:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "An unexpected error occurred while logging activity.",
+      });
+    } finally {
+      setIsLogging(false);
+    }
   };
   
   const ToastAction = ({ altText, children }: { altText: string; children: React.ReactNode }) => (
@@ -183,7 +210,7 @@ export function TimeTrackingControls() {
               {user.email && <CardDescription className="text-sm text-muted-foreground">{user.email}</CardDescription>}
             </div>
           </div>
-          <Button variant="outline" onClick={signOut} size="sm">
+          <Button variant="outline" onClick={signOut} size="sm" disabled={isLogging}>
             <LogOut className="mr-2 h-4 w-4" /> Sign Out
           </Button>
         </div>
@@ -203,8 +230,10 @@ export function TimeTrackingControls() {
               size="lg" 
               className="py-8 text-xl bg-accent hover:bg-accent/90 text-accent-foreground col-span-full"
               onClick={() => handleActivity("clock-in", "Clocked In", "Clocked In - Working")}
+              disabled={isLogging}
             >
-              <LogIn className="mr-2 h-6 w-6" /> Clock In
+              {isLogging && activityState.lastAction === 'clock-in' ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <LogIn className="mr-2 h-6 w-6" />}
+               Clock In
             </Button>
           ) : (
             <Button 
@@ -212,8 +241,10 @@ export function TimeTrackingControls() {
               size="lg" 
               className="py-8 text-xl col-span-full"
               onClick={() => handleActivity("clock-out", "Clocked Out", "Clocked Out")}
+              disabled={isLogging}
             >
-              <LogOut className="mr-2 h-6 w-6" /> Clock Out
+              {isLogging && activityState.lastAction === 'clock-out' ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <LogOut className="mr-2 h-6 w-6" />}
+               Clock Out
             </Button>
           )}
         </div>
@@ -226,19 +257,22 @@ export function TimeTrackingControls() {
                   variant="outline" 
                   size="lg" 
                   className="py-6 text-lg"
-                  disabled={activityState.isOnBreak || activityState.isBathroom}
+                  disabled={activityState.isOnBreak || activityState.isBathroom || isLogging}
                   onClick={() => handleActivity("lunch-start", "Started Lunch", "On Lunch")}
                 >
-                  <Sandwich className="mr-2 h-5 w-5" /> Start Lunch
+                  {isLogging && activityState.lastAction === 'lunch-start' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Sandwich className="mr-2 h-5 w-5" />}
+                   Start Lunch
                 </Button>
               ) : (
                 <Button 
                   variant="outline" 
                   size="lg" 
                   className="py-6 text-lg border-primary text-primary hover:bg-primary/10"
+                  disabled={isLogging}
                   onClick={() => handleActivity("lunch-end", "Ended Lunch", "Clocked In - Working")}
                 >
-                  <Sandwich className="mr-2 h-5 w-5" /> End Lunch
+                  {isLogging && activityState.lastAction === 'lunch-end' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Sandwich className="mr-2 h-5 w-5" />}
+                   End Lunch
                 </Button>
               )}
 
@@ -247,19 +281,22 @@ export function TimeTrackingControls() {
                   variant="outline" 
                   size="lg" 
                   className="py-6 text-lg"
-                  disabled={activityState.isOnLunch || activityState.isBathroom}
+                  disabled={activityState.isOnLunch || activityState.isBathroom || isLogging}
                   onClick={() => handleActivity("break-start", "Started Break", "On Break")}
                 >
-                  <Coffee className="mr-2 h-5 w-5" /> Start Break
+                  {isLogging && activityState.lastAction === 'break-start' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Coffee className="mr-2 h-5 w-5" />}
+                   Start Break
                 </Button>
               ) : (
                 <Button 
                   variant="outline" 
                   size="lg" 
                   className="py-6 text-lg border-primary text-primary hover:bg-primary/10"
+                  disabled={isLogging}
                   onClick={() => handleActivity("break-end", "Ended Break", "Clocked In - Working")}
                 >
-                  <Coffee className="mr-2 h-5 w-5" /> End Break
+                  {isLogging && activityState.lastAction === 'break-end' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Coffee className="mr-2 h-5 w-5" />}
+                   End Break
                 </Button>
               )}
             </div>
@@ -270,19 +307,22 @@ export function TimeTrackingControls() {
                   variant="outline" 
                   size="lg" 
                   className="py-6 text-lg w-full"
-                  disabled={activityState.isOnLunch || activityState.isOnBreak}
+                  disabled={activityState.isOnLunch || activityState.isOnBreak || isLogging}
                   onClick={() => handleActivity("bathroom-start", "Bathroom Break Started", "On Bathroom Break")}
                 >
-                  <Waves className="mr-2 h-5 w-5" /> Bathroom
+                  {isLogging && activityState.lastAction === 'bathroom-start' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Waves className="mr-2 h-5 w-5" />}
+                   Bathroom
                 </Button>
               ) : (
                 <Button 
                   variant="outline" 
                   size="lg" 
                   className="py-6 text-lg w-full border-primary text-primary hover:bg-primary/10"
+                  disabled={isLogging}
                   onClick={() => handleActivity("bathroom-end", "Bathroom Break Ended", "Clocked In - Working")}
                 >
-                  <Waves className="mr-2 h-5 w-5" /> End Bathroom
+                  {isLogging && activityState.lastAction === 'bathroom-end' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Waves className="mr-2 h-5 w-5" />}
+                   End Bathroom
                 </Button>
               )}
             </div>
