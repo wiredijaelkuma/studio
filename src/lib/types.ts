@@ -21,7 +21,8 @@ export interface AgentActivityLog {
 
 export interface AgentStatusFirestore {
   agentId: string;
-  agentName?: string | null;
+  agentName?: string | null; // Name from Google Auth
+  adminDisplayName?: string | null; // Display name set by admin
   agentEmail?: string | null;
   photoURL?: string | null;
   currentStatus: string;
@@ -34,7 +35,7 @@ export interface AgentLogEntry {
   timestamp: string;
   agentId: string;
   agentEmail: string | null | undefined;
-  agentName: string | null | undefined;
+  agentName: string | null | undefined; // This will be the name logged at the time of activity
   activityType: string;
   statusMessage: string;
 }
@@ -42,7 +43,7 @@ export interface AgentLogEntry {
 export interface AdherenceViolationFirestore {
   id?: string; // Firestore document ID
   agentId: string;
-  agentName?: string | null;
+  agentName?: string | null; // Name from Google Auth at time of violation
   agentEmail?: string | null;
   photoURL?: string | null;
   activityType: 'lunch' | 'break'; // Type of activity that was overdue

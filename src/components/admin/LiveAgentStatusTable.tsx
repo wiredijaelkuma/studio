@@ -9,12 +9,15 @@ import Image from "next/image";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Users, WifiOff, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Loader2, Users, WifiOff, AlertCircle, Pencil } from "lucide-react";
 import { formatDistanceToNowStrict } from 'date-fns';
+import { updateAgentDisplayName } from "@/app/actions/updateAgentDisplayName";
+import { useToast } from "@/hooks/use-toast";
 
 function getStatusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "Clocked In - Working") return "default"; // Primary (blue by default)
-  if (status === "On Lunch" || status === "On Break" || status === "On Bathroom Break") return "secondary"; // Secondary (grayish)
+  if (status === "Clocked In - Working") return "default";
+  if (status === "On Lunch" || status === "On Break" || status === "On Bathroom Break") return "secondary";
   if (status === "Clocked Out" || status === "Offline") return "outline";
   return "default";
 }
@@ -23,6 +26,7 @@ export function LiveAgentStatusTable() {
   const [liveAgents, setLiveAgents] = useState<AgentStatusFirestore[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     setIsLoading(true);
@@ -32,9 +36,8 @@ export function LiveAgentStatusTable() {
       const agents: AgentStatusFirestore[] = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data() as AgentStatusFirestore;
-        // Filter out "Clocked Out" or "Offline" agents for this "live" table
         if (data.currentStatus !== "Clocked Out" && data.currentStatus !== "Offline") {
-          agents.push({ ...data, id: doc.id } as any); // Add doc.id for key
+          agents.push({ ...data, id: doc.id } as any); 
         }
       });
       setLiveAgents(agents);
@@ -48,6 +51,19 @@ export function LiveAgentStatusTable() {
 
     return () => unsubscribe();
   }, []);
+
+  const handleEditName = async (agentId: string, currentDisplayName: string | null | undefined) => {
+    const newName = window.prompt("Enter new display name (leave blank to clear):", currentDisplayName || "");
+    if (newName === null) return; // User cancelled
+
+    const result = await updateAgentDisplayName(agentId, newName);
+    if (result.success) {
+      toast({ title: "Success", description: result.message });
+      // Firestore listener should update the table automatically
+    } else {
+      toast({ variant: "destructive", title: "Error", description: result.message });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -95,14 +111,27 @@ export function LiveAgentStatusTable() {
               <TableCell>
                 <Image 
                   src={agent.photoURL || "https://placehold.co/40x40.png"} 
-                  alt={agent.agentName || "Agent"} 
+                  alt={agent.adminDisplayName || agent.agentName || "Agent"} 
                   width={32} 
                   height={32} 
                   className="rounded-full"
                   data-ai-hint="profile person" 
                 />
               </TableCell>
-              <TableCell className="font-medium">{agent.agentName || 'N/A'}</TableCell>
+              <TableCell className="font-medium">
+                <div className="flex items-center gap-2">
+                  {agent.adminDisplayName || agent.agentName || 'N/A'}
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-6 w-6"
+                    onClick={() => handleEditName(agent.agentId, agent.adminDisplayName || agent.agentName)}
+                    title="Edit display name"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </Button>
+                </div>
+              </TableCell>
               <TableCell>
                 <Badge variant={getStatusBadgeVariant(agent.currentStatus)}>
                   {agent.currentStatus}

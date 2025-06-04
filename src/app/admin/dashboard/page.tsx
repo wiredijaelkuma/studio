@@ -10,14 +10,14 @@ import { HistoricalAdherenceViolationsTable } from "@/components/admin/Historica
 import { ActivityChart } from "@/components/admin/ActivityChart";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { getAgentLogsForDate } from "@/app/actions/getTodaysAgentLogs";
-import { saveLogsToDrive } from "@/app/actions/saveLogsToDrive"; // Added
-import type { AgentLogEntry } from "@/app/actions/getTodaysAgentLogs";
+import { saveLogsToDrive } from "@/app/actions/saveLogsToDrive";
+import type { AgentLogEntry } from "@/app/actions/getTodaysAgentLogs"; // Corrected type import name
 import { db } from '@/lib/firebase/config';
 import { collection, getDocs } from 'firebase/firestore';
 import type { AgentStatusFirestore } from "@/lib/types";
-import { useToast } from "@/hooks/use-toast"; // Added
+import { useToast } from "@/hooks/use-toast"; 
 
-import { AlertTriangle, CalendarClock, CalendarIcon, FileText, Loader2, Users, BarChartHorizontalBig, HardDriveDownload } from "lucide-react"; // Added HardDriveDownload
+import { AlertTriangle, CalendarClock, CalendarIcon, FileText, Loader2, Users, BarChartHorizontalBig, HardDriveDownload } from "lucide-react"; 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -43,8 +43,8 @@ export default function AdminDashboardPage() {
 
   const [availableAgents, setAvailableAgents] = useState<AgentFilterChoice[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>("all");
-  const [isSavingToDrive, setIsSavingToDrive] = useState(false); // Added
-  const { toast } = useToast(); // Added
+  const [isSavingToDrive, setIsSavingToDrive] = useState(false); 
+  const { toast } = useToast(); 
 
   useEffect(() => {
     async function fetchAgentsForFilter() {
@@ -53,17 +53,24 @@ export default function AdminDashboardPage() {
         const agents: AgentFilterChoice[] = [];
         agentSnapshot.forEach(doc => {
           const data = doc.data() as AgentStatusFirestore;
-          if (data.agentId && data.agentName) {
-            agents.push({ id: data.agentId, name: data.agentName });
+          if (data.agentId) { // Only need agentId for value, name is for display
+            agents.push({ 
+              id: data.agentId, 
+              name: data.adminDisplayName || data.agentName || `Agent ${data.agentId.substring(0,6)}` 
+            });
           }
         });
         const uniqueAgents = Array.from(new Map(agents.map(agent => [agent.id, agent])).values());
-        setAvailableAgents(uniqueAgents.sort((a,b) => (a.name || "").localeCompare(b.name || "")));
+        setAvailableAgents(uniqueAgents.sort((a,b) => a.name.localeCompare(b.name)));
       } catch (error) {
         console.error("Error fetching agents for filter:", error);
       }
     }
     fetchAgentsForFilter();
+    // Re-fetch if an agent's display name might have changed elsewhere (e.g. via LiveAgentStatusTable)
+    // This could be optimized with a Firestore listener for agentStatuses if frequent updates are expected
+    const interval = setInterval(fetchAgentsForFilter, 30000); // Refresh agent list every 30s
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -97,7 +104,10 @@ export default function AdminDashboardPage() {
     setIsSavingToDrive(true);
     const dateToSaveISO = selectedDate.toISOString().split('T')[0];
     const agentIdToFilter = selectedAgentId === "all" ? undefined : selectedAgentId;
-    const agentNameToFilter = selectedAgentId === "all" ? "All Agents" : availableAgents.find(a => a.id === selectedAgentId)?.name;
+    
+    const selectedAgentObject = availableAgents.find(a => a.id === selectedAgentId);
+    const agentNameToFilter = selectedAgentId === "all" ? "All Agents" : (selectedAgentObject?.name || `Agent_${selectedAgentId.substring(0,6)}`);
+
 
     const result = await saveLogsToDrive(dateToSaveISO, agentIdToFilter, agentNameToFilter);
     if (result.success) {
@@ -219,7 +229,7 @@ export default function AdminDashboardPage() {
                   <SelectItem value="all">All Agents</SelectItem>
                   {availableAgents.map(agent => (
                     <SelectItem key={agent.id} value={agent.id}>
-                      {agent.name || `Agent ${agent.id.substring(0,6)}`}
+                      {agent.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
