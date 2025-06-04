@@ -1,11 +1,14 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Clock, LogIn, LogOut, Sandwich, Coffee, UserRound, Waves, CheckCircle2, AlertCircle } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Clock, LogIn, LogOut, Sandwich, Coffee, UserRound, Waves, CheckCircle2, AlertCircle, Loader2, UserCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { AgentActivityType } from "@/lib/types";
+import { useAuth } from '@/contexts/AuthContext';
 
 interface ActivityState {
   status: string;
@@ -18,6 +21,7 @@ interface ActivityState {
 
 export function TimeTrackingControls() {
   const { toast } = useToast();
+  const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [activityState, setActivityState] = useState<ActivityState>({
     status: "Clocked Out",
@@ -32,9 +36,26 @@ export function TimeTrackingControls() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    // Reset activity state if user logs out or changes
+    if (!user) {
+      setActivityState({
+        status: "Clocked Out",
+        isClockedIn: false,
+        isOnLunch: false,
+        isOnBreak: false,
+        isBathroom: false,
+      });
+    }
+  }, [user]);
+
   const handleActivity = (type: AgentActivityType, message: string, newStatus: string) => {
-    // Here you would typically send data to a backend/Firebase
-    console.log(`Activity: ${type} at ${new Date().toISOString()}`);
+    if (!user) {
+      toast({ variant: "destructive", title: "Not Signed In", description: "Please sign in to log activity." });
+      return;
+    }
+    // Here you would typically send data to a backend/Firebase, associated with user.uid
+    console.log(`Activity: ${type} by ${user.uid} at ${new Date().toISOString()}`);
     
     setActivityState(prevState => {
       let nextState = { ...prevState, lastAction: type, status: newStatus };
@@ -44,7 +65,7 @@ export function TimeTrackingControls() {
           break;
         case 'clock-out':
           nextState.isClockedIn = false;
-          nextState.isOnLunch = false; // Auto-end lunch/break on clock-out
+          nextState.isOnLunch = false; 
           nextState.isOnBreak = false;
           nextState.isBathroom = false;
           break;
@@ -78,11 +99,10 @@ export function TimeTrackingControls() {
   };
   
   const ToastAction = ({ altText, children }: { altText: string; children: React.ReactNode }) => (
-    <Button variant="outline" size="sm" onClick={() => console.log("Undo action triggered")}>
+    <Button variant="outline" size="sm" onClick={() => console.log("Undo action triggered for toast")}>
       {children}
     </Button>
   );
-
 
   const CurrentStatusIndicator = () => {
     let IconComponent = AlertCircle;
@@ -117,17 +137,64 @@ export function TimeTrackingControls() {
     );
   };
 
+  if (authLoading) {
+    return (
+      <Card className="w-full max-w-md mx-auto shadow-lg">
+        <CardContent className="flex flex-col justify-center items-center h-64 space-y-4">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading session...</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!user) {
+    return (
+      <Card className="w-full max-w-md mx-auto shadow-lg">
+        <CardHeader className="text-center p-6">
+          <UserCircle2 className="h-16 w-16 mx-auto text-primary mb-3" />
+          <CardTitle className="text-2xl font-headline">Sign In Required</CardTitle>
+          <CardDescription className="text-md mt-1">
+            Please sign in with your Google account to track your work activities.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex justify-center p-6 pt-2">
+          <Button onClick={signInWithGoogle} size="lg" className="text-lg py-3 w-full sm:w-auto">
+            <LogIn className="mr-2 h-5 w-5" /> Sign in with Google
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="w-full max-w-2xl mx-auto shadow-lg">
-      <CardHeader className="text-center">
-        <Clock className="h-12 w-12 mx-auto text-primary mb-2" />
-        <CardTitle className="text-3xl font-headline">Time Tracking</CardTitle>
-        <CardDescription className="text-lg">
-          Current Time: {currentTime.toLocaleTimeString()}
-        </CardDescription>
+      <CardHeader className="p-6">
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <Avatar className="h-12 w-12">
+              <AvatarImage src={user.photoURL || undefined} alt={user.displayName || 'User'} data-ai-hint="profile person" />
+              <AvatarFallback className="text-xl">
+                {user.displayName ? user.displayName.charAt(0).toUpperCase() : <UserRound />}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <CardTitle className="text-xl font-headline">{user.displayName || 'Agent'}</CardTitle>
+              {user.email && <CardDescription className="text-sm text-muted-foreground">{user.email}</CardDescription>}
+            </div>
+          </div>
+          <Button variant="outline" onClick={signOut} size="sm">
+            <LogOut className="mr-2 h-4 w-4" /> Sign Out
+          </Button>
+        </div>
+        <div className="text-center border-t pt-4">
+          <Clock className="h-10 w-10 mx-auto text-primary mb-1" />
+          <p className="text-lg">
+            Current Time: {currentTime.toLocaleTimeString()}
+          </p>
+        </div>
       </CardHeader>
-      <CardContent className="space-y-6 p-6">
+      <CardContent className="space-y-6 p-6 pt-0">
         <CurrentStatusIndicator />
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
