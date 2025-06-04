@@ -15,7 +15,8 @@ import { AlertTriangle, Eye, Loader2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import { db } from '@/lib/firebase/config';
-import { collection, onSnapshot, query, type Timestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, type Timestamp as FirestoreTimestampType } from 'firebase/firestore'; // Use FirestoreTimestampType alias
+import type { AgentStatusFirestore } from "@/lib/types"; // Use updated type
 
 // Duration constants from TimeTrackingControls (or define centrally)
 const LUNCH_DURATION_MINUTES = 30;
@@ -26,23 +27,14 @@ const NOTIFICATION_GRACE_PERIOD_MINUTES = 5; // Agent is notified after base + g
 const LUNCH_ALERT_THRESHOLD_MS = (LUNCH_DURATION_MINUTES + NOTIFICATION_GRACE_PERIOD_MINUTES) * 60 * 1000; // e.g., 35 mins
 const BREAK_ALERT_THRESHOLD_MS = (BREAK_DURATION_MINUTES + NOTIFICATION_GRACE_PERIOD_MINUTES) * 60 * 1000; // e.g., 20 mins
 
-interface FirestoreAgentStatus {
-  agentId: string;
-  agentName?: string;
-  photoURL?: string;
-  currentStatus: string; // "On Lunch", "On Break", "Clocked In - Working", etc.
-  currentActivityType: 'lunch' | 'break' | 'bathroom' | null;
-  activityStartTime?: Timestamp | null; // Timestamp when current lunch/break/bathroom started
-  lastUpdate: Timestamp;
-}
 
 interface AdherenceAlert {
   id: string;
   agentName: string;
   avatar: string;
-  team?: string; // Team data isn't in Firestore yet, so this will be placeholder
-  issue: string; // e.g., "Overdue Lunch", "Overdue Break"
-  deviation: string; // e.g., "10 mins over"
+  team?: string; 
+  issue: string; 
+  deviation: string; 
   details?: string;
 }
 
@@ -59,9 +51,9 @@ export function AdherenceAlertsTable() {
       const currentAlerts: AdherenceAlert[] = [];
 
       querySnapshot.forEach((doc) => {
-        const data = doc.data() as FirestoreAgentStatus;
+        const data = doc.data() as AgentStatusFirestore;
         if (data.activityStartTime && data.currentActivityType) {
-          const startTimeMs = data.activityStartTime.toDate().getTime();
+          const startTimeMs = (data.activityStartTime as unknown as FirestoreTimestampType).toDate().getTime();
           const durationMs = now - startTimeMs;
           let thresholdMs = 0;
           let activityName = "";
@@ -84,7 +76,7 @@ export function AdherenceAlertsTable() {
               avatar: data.photoURL || "https://placehold.co/40x40.png",
               issue: `Overdue ${activityName}`,
               deviation: `${overdueMinutes} min${overdueMinutes !== 1 ? 's' : ''} over`,
-              details: `${activityName} started at ${data.activityStartTime.toDate().toLocaleTimeString()}`,
+              details: `${activityName} started at ${(data.activityStartTime as unknown as FirestoreTimestampType).toDate().toLocaleTimeString()}`,
             });
           }
         }
@@ -146,7 +138,7 @@ export function AdherenceAlertsTable() {
         {alerts.map((alert) => (
           <TableRow key={alert.id} className="hover:bg-muted/50">
             <TableCell>
-               <Image src={alert.avatar} alt={alert.agentName} width={40} height={40} className="rounded-full" data-ai-hint="profile person" />
+               <Image src={alert.avatar} alt={alert.agentName} width={40} height={40} className="rounded-full" data-ai-hint="profile person"/>
             </TableCell>
             <TableCell className="font-medium">{alert.agentName}</TableCell>
             {/* <TableCell>{alert.team || 'N/A'}</TableCell> */}
@@ -168,5 +160,3 @@ export function AdherenceAlertsTable() {
     </Table>
   );
 }
-
-    

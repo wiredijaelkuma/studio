@@ -1,4 +1,6 @@
+
 import { TimeTrackingControls } from "@/components/agent/TimeTrackingControls";
+import { AgentActivityLog } from "@/components/agent/AgentActivityLog"; // Added
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 export default function AgentDashboardPage() {
@@ -15,17 +17,8 @@ export default function AgentDashboardPage() {
       
       <TimeTrackingControls />
 
-      {/* Placeholder for future agent-specific information or quick links */}
-      {/* 
-      <Card>
-        <CardHeader>
-          <CardTitle>My Schedule</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p>Your schedule for today will appear here.</p>
-        </CardContent>
-      </Card>
-      */}
+      <AgentActivityLog /> {/* Added */}
+
     </div>
   );
 }

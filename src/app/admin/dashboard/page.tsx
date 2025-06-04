@@ -5,9 +5,14 @@ import { useEffect, useState } from "react";
 import { AgentStatusSummary } from "@/components/admin/AgentStatusSummary";
 import { AdherenceAlertsTable } from "@/components/admin/AdherenceAlertsTable";
 import { TodaysActivityLogTable } from "@/components/admin/TodaysActivityLogTable";
+import { LiveAgentStatusTable } from "@/components/admin/LiveAgentStatusTable"; // Added
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { getAgentLogsForDate, type AgentLogEntry } from "@/app/actions/getTodaysAgentLogs"; // Updated import
-import { AlertTriangle, CalendarIcon, Loader2 } from "lucide-react";
+import { getAgentLogsForDate, type AgentLogEntry } from "@/app/actions/getTodaysAgentLogs";
+import { db } from '@/lib/firebase/config'; // Added
+import { collection, getDocs, type Timestamp } from 'firebase/firestore'; // Added
+import type { AgentStatusFirestore } from "@/lib/types"; // Added
+
+import { AlertTriangle, CalendarIcon, Loader2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -15,8 +20,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Added
 import { cn } from "@/lib/utils";
-import { format, subDays } from "date-fns"; // Import subDays for default past date example if needed
+import { format, subDays } from "date-fns";
+
+interface AgentFilterChoice {
+  id: string;
+  name: string;
+}
 
 export default function AdminDashboardPage() {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
@@ -25,6 +36,32 @@ export default function AdminDashboardPage() {
   const [logFetchMessage, setLogFetchMessage] = useState<string | null>(null);
   const [logFetchSuccess, setLogFetchSuccess] = useState(true);
 
+  const [availableAgents, setAvailableAgents] = useState<AgentFilterChoice[]>([]); // Added
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("all"); // Added, "all" means no filter
+
+  useEffect(() => {
+    // Fetch list of agents for the filter dropdown
+    async function fetchAgentsForFilter() {
+      try {
+        const agentSnapshot = await getDocs(collection(db, "agentStatuses"));
+        const agents: AgentFilterChoice[] = [];
+        agentSnapshot.forEach(doc => {
+          const data = doc.data() as AgentStatusFirestore;
+          if (data.agentId && data.agentName) {
+            agents.push({ id: data.agentId, name: data.agentName });
+          }
+        });
+        // Remove duplicate agentIDs just in case, though agentStatuses should have unique IDs
+        const uniqueAgents = Array.from(new Map(agents.map(agent => [agent.id, agent])).values());
+        setAvailableAgents(uniqueAgents.sort((a,b) => a.name.localeCompare(b.name)));
+      } catch (error) {
+        console.error("Error fetching agents for filter:", error);
+        // Not critical if this fails, filter will just be less populated
+      }
+    }
+    fetchAgentsForFilter();
+  }, []);
+
   useEffect(() => {
     async function fetchLogs() {
       if (!selectedDate) return;
@@ -32,11 +69,10 @@ export default function AdminDashboardPage() {
       setLogFetchMessage(null);
       setLogFetchSuccess(true);
 
-      // Format date to YYYY-MM-DD for consistency if sending to server action
-      // The server action currently handles date conversion, so sending Date object or ISO string is fine
       const dateToFetch = selectedDate.toISOString();
+      const agentIdToFilter = selectedAgentId === "all" ? undefined : selectedAgentId;
 
-      const { success, data, message } = await getAgentLogsForDate(dateToFetch);
+      const { success, data, message } = await getAgentLogsForDate(dateToFetch, agentIdToFilter); // Pass agentIdToFilter
       if (success) {
         setLogsForDate(data || []);
       } else {
@@ -47,7 +83,7 @@ export default function AdminDashboardPage() {
       setIsLoadingLogs(false);
     }
     fetchLogs();
-  }, [selectedDate]);
+  }, [selectedDate, selectedAgentId]); // Re-fetch if selectedAgentId changes
 
   return (
     <div className="space-y-8">
@@ -60,41 +96,71 @@ export default function AdminDashboardPage() {
 
       <Card className="shadow-lg">
         <CardHeader>
+            <CardTitle className="text-2xl font-headline flex items-center gap-2">
+                <Users className="h-7 w-7 text-primary"/>
+                Live Agent Statuses
+            </CardTitle>
+            <CardDescription>Real-time status of currently active agents (from Firestore).</CardDescription>
+        </CardHeader>
+        <CardContent>
+            <LiveAgentStatusTable />
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-lg">
+        <CardHeader>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
+            <div className="flex-grow">
               <CardTitle className="text-2xl font-headline">Activity Log (from Google Sheet)</CardTitle>
-              <CardDescription>Raw activity logs for agents on {selectedDate ? format(selectedDate, "PPP") : "selected date"}.</CardDescription>
+              <CardDescription>
+                Raw activity logs for {selectedAgentId === "all" ? "all agents" : availableAgents.find(a => a.id === selectedAgentId)?.name || "selected agent"} on {selectedDate ? format(selectedDate, "PPP") : "selected date"}.
+              </CardDescription>
             </div>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant={"outline"}
-                  className={cn(
-                    "w-[200px] justify-start text-left font-normal",
-                    !selectedDate && "text-muted-foreground"
-                  )}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0">
-                <Calendar
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={setSelectedDate}
-                  initialFocus
-                  disabled={(date) => date > new Date() || date < subDays(new Date(), 3650)} // Example: disable future dates and dates older than 10 years
-                />
-              </PopoverContent>
-            </Popover>
+            <div className="flex flex-col sm:flex-row gap-2 items-center">
+              <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+                <SelectTrigger className="w-full sm:w-[200px]">
+                  <SelectValue placeholder="Filter by Agent" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Agents</SelectItem>
+                  {availableAgents.map(agent => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={"outline"}
+                    className={cn(
+                      "w-full sm:w-[200px] justify-start text-left font-normal",
+                      !selectedDate && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={setSelectedDate}
+                    initialFocus
+                    disabled={(date) => date > new Date() || date < subDays(new Date(), 3650)}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
           {isLoadingLogs && (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="ml-2 text-muted-foreground">Loading logs for {selectedDate ? format(selectedDate, "PPP") : "selected date"}...</p>
+              <p className="ml-2 text-muted-foreground">Loading logs...</p>
             </div>
           )}
           {!isLoadingLogs && !logFetchSuccess && (
@@ -108,7 +174,7 @@ export default function AdminDashboardPage() {
           )}
           {!isLoadingLogs && logFetchSuccess && logsForDate.length === 0 && (
              <p className="text-muted-foreground p-4 text-center">
-               {logFetchMessage || `No activities logged to Google Sheet for ${selectedDate ? format(selectedDate, "PPP") : "selected date"}.`}
+               {logFetchMessage || `No activities logged to Google Sheet for the criteria.`}
              </p>
           )}
         </CardContent>

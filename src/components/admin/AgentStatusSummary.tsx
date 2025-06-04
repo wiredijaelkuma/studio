@@ -2,18 +2,19 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Coffee, Sandwich, UserCheck, UserX, Waves, Loader2 } from "lucide-react"; 
+import { Users, Coffee, Sandwich, UserCheck, UserX, Waves, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { db } from '@/lib/firebase/config';
-import { collection, onSnapshot, query, type Timestamp } from 'firebase/firestore';
-import { cn } from "@/lib/utils"; // Import cn utility
+import { collection, onSnapshot, query, type Timestamp as FirestoreTimestampType } from 'firebase/firestore'; // Use FirestoreTimestampType alias
+import { cn } from "@/lib/utils";
+import type { AgentStatusFirestore } from "@/lib/types"; // Use updated type
 
 interface StatusCardProps {
   title: string;
   value: number | string;
   icon: React.ElementType;
   color?: string;
-  valueClassName?: string; // Added for custom styling of the value
+  valueClassName?: string;
 }
 
 const StatusCard: React.FC<StatusCardProps> = ({ title, value, icon: Icon, color = "text-primary", valueClassName }) => (
@@ -27,15 +28,6 @@ const StatusCard: React.FC<StatusCardProps> = ({ title, value, icon: Icon, color
     </CardContent>
   </Card>
 );
-
-interface FirestoreAgentStatus {
-  agentId: string;
-  agentEmail?: string;
-  agentName?: string;
-  currentStatus: string;
-  lastUpdate: Timestamp | {toDate: () => Date}; 
-  photoURL?: string;
-}
 
 interface AgentStatusSummaryData {
   totalMonitoredAgents: number;
@@ -55,9 +47,21 @@ export function AgentStatusSummary() {
     setLoading(true);
     const q = query(collection(db, "agentStatuses"));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const statuses: FirestoreAgentStatus[] = [];
+      const statuses: AgentStatusFirestore[] = [];
       querySnapshot.forEach((doc) => {
-        statuses.push(doc.data() as FirestoreAgentStatus);
+        // Ensure Timestamps are handled correctly if they come from Firestore
+        const data = doc.data();
+        const statusEntry: AgentStatusFirestore = {
+          agentId: data.agentId,
+          agentName: data.agentName,
+          agentEmail: data.agentEmail,
+          photoURL: data.photoURL,
+          currentStatus: data.currentStatus,
+          currentActivityType: data.currentActivityType,
+          activityStartTime: data.activityStartTime, // This will be a Firestore Timestamp
+          lastUpdate: data.lastUpdate, // This will be a Firestore Timestamp
+        };
+        statuses.push(statusEntry);
       });
 
       let workingAgents = 0;
@@ -65,8 +69,12 @@ export function AgentStatusSummary() {
       let onBreakAgents = 0;
       let onBathroomAgents = 0;
       let clockedOutAgents = 0;
+      let activelyTrackedCount = 0; // Agents not clocked out or offline
 
       statuses.forEach(status => {
+        if (status.currentStatus !== "Clocked Out" && status.currentStatus !== "Offline") {
+          activelyTrackedCount++;
+        }
         switch (status.currentStatus) {
           case "Clocked In - Working":
             workingAgents++;
@@ -81,24 +89,19 @@ export function AgentStatusSummary() {
             onBathroomAgents++;
             break;
           case "Clocked Out":
-          case "Offline": // Consider "Offline" also as clocked out for summary
+          case "Offline":
             clockedOutAgents++;
-            break;
-          default:
-            // Agents not in any of the above explicit states but present in agentStatuses
-            // might be considered "monitored but idle" or similar.
-            // For now, we only count explicitly.
             break;
         }
       });
       
       setSummaryData({
-        totalMonitoredAgents: statuses.length, // Total documents in agentStatuses
+        totalMonitoredAgents: activelyTrackedCount, // Show only actively monitored agents
         workingAgents,
         onLunchAgents,
         onBreakAgents,
         onBathroomAgents,
-        clockedOutAgents,
+        clockedOutAgents, // Keep this for internal logic if needed, but totalMonitored is more relevant for display
       });
       setLoading(false);
       setError(null);
@@ -112,9 +115,9 @@ export function AgentStatusSummary() {
   }, []);
 
   const getWorkingAgentsColorClass = (count: number): string => {
-    if (count >= 7) return "text-green-600"; // Green for 7+
-    if (count >= 5 && count <= 6) return "text-yellow-500"; // Yellow for 5-6
-    return "text-red-600"; // Red for below 5
+    if (count >= 7) return "text-green-600";
+    if (count >= 5) return "text-yellow-500"; // 5 or 6
+    return "text-red-600"; // Below 5
   };
 
   if (loading) {
@@ -143,23 +146,19 @@ export function AgentStatusSummary() {
     return <p className="text-muted-foreground text-center py-4">No agent status data available.</p>;
   }
   
-  const activelyTracked = summaryData.totalMonitoredAgents; 
-
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-      <StatusCard title="Monitored Agents" value={activelyTracked} icon={Users} />
+      <StatusCard title="Active Agents" value={summaryData.totalMonitoredAgents} icon={Users} />
       <StatusCard 
         title="Working" 
         value={summaryData.workingAgents} 
         icon={UserCheck} 
-        color="text-accent" // Icon color
-        valueClassName={getWorkingAgentsColorClass(summaryData.workingAgents)} // Value color
+        color="text-accent"
+        valueClassName={getWorkingAgentsColorClass(summaryData.workingAgents)}
       />
       <StatusCard title="On Lunch" value={summaryData.onLunchAgents} icon={Sandwich} color="text-orange-500" /> 
       <StatusCard title="On Break" value={summaryData.onBreakAgents} icon={Coffee} color="text-yellow-500" />
       <StatusCard title="Bathroom Break" value={summaryData.onBathroomAgents} icon={Waves} color="text-blue-400" />
-      {/* Displaying Clocked Out agents could also be useful if there's space */}
-      {/* <StatusCard title="Clocked Out" value={summaryData.clockedOutAgents} icon={UserX} color="text-slate-500" /> */}
     </div>
   );
 }

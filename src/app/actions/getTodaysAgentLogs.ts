@@ -3,6 +3,7 @@
 
 import { google } from 'googleapis';
 import { z } from 'zod';
+import type { AgentLogEntry } from '@/lib/types'; // Updated type import
 
 const LogEntrySchema = z.object({
   timestamp: z.string(),
@@ -13,8 +14,6 @@ const LogEntrySchema = z.object({
   statusMessage: z.string(),
 });
 
-export type AgentLogEntry = z.infer<typeof LogEntrySchema>;
-
 // Function to get the start and end of a given day in UTC ISO string format
 const getDateRangeForDay = (dateString?: string) => {
   const date = dateString ? new Date(dateString) : new Date();
@@ -24,12 +23,15 @@ const getDateRangeForDay = (dateString?: string) => {
   const endOfDayDate = new Date(date);
   endOfDayDate.setUTCHours(23, 59, 59, 999); // End of the day in UTC
   const endOfDay = endOfDayDate.toISOString();
-  
+
   return { startOfDay, endOfDay };
 };
 
 
-export async function getAgentLogsForDate(dateString?: string): Promise<{ success: boolean; data?: AgentLogEntry[]; message: string }> {
+export async function getAgentLogsForDate(
+  dateString?: string,
+  filterAgentId?: string // New optional parameter to filter by agentId
+): Promise<{ success: boolean; data?: AgentLogEntry[]; message: string }> {
   try {
     const spreadsheetId = process.env.GOOGLE_SHEET_ID;
     const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
@@ -45,12 +47,12 @@ export async function getAgentLogsForDate(dateString?: string): Promise<{ succes
         client_email: serviceAccountEmail,
         private_key: privateKey,
       },
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'], // Readonly scope
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
     });
 
     const sheets = google.sheets({ version: 'v4', auth });
 
-    const range = 'Sheet1!A:F'; 
+    const range = 'Sheet1!A:F';
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range,
@@ -64,27 +66,30 @@ export async function getAgentLogsForDate(dateString?: string): Promise<{ succes
 
     const headerRow = rows[0];
     const expectedHeaders = ['Timestamp', 'Agent ID', 'Agent Email', 'Agent Name', 'Activity Type', 'Status Message'];
-    // Basic check for first header
     if (headerRow[0] !== expectedHeaders[0]) {
         console.warn("Sheet headers might not match expected. Assuming order: Timestamp, Agent ID, Agent Email, Agent Name, Activity Type, Status Message");
     }
-    
+
     const logs: AgentLogEntry[] = [];
     const { startOfDay, endOfDay } = getDateRangeForDay(dateString);
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (row.length < 6) continue; 
+      if (row.length < 6) continue;
 
-      const logTimestampISO = row[0]; 
-      
+      const logTimestampISO = row[0];
+      const agentIdFromSheet = row[1] || '';
+
+      // Apply agentId filter if provided
+      if (filterAgentId && agentIdFromSheet !== filterAgentId) {
+        continue;
+      }
+
       if (logTimestampISO && typeof logTimestampISO === 'string' && !isNaN(new Date(logTimestampISO).getTime())) {
-        // Compare ISO strings directly for UTC dates
         if (logTimestampISO >= startOfDay && logTimestampISO <= endOfDay) {
           const entry: AgentLogEntry = {
-            // Display timestamp in local time for readability
-            timestamp: new Date(logTimestampISO).toLocaleString(), 
-            agentId: row[1] || '',
+            timestamp: new Date(logTimestampISO).toLocaleString(),
+            agentId: agentIdFromSheet,
             agentEmail: row[2] || '',
             agentName: row[3] || '',
             activityType: row[4] || '',
@@ -96,8 +101,10 @@ export async function getAgentLogsForDate(dateString?: string): Promise<{ succes
         console.warn(`Skipping row ${i+1} due to invalid or missing timestamp: ${logTimestampISO}`);
       }
     }
-
-    return { success: true, data: logs.reverse(), message: 'Successfully fetched logs for the selected date.' };
+    const message = filterAgentId
+      ? `Successfully fetched logs for agent ${filterAgentId} on the selected date.`
+      : 'Successfully fetched logs for the selected date.';
+    return { success: true, data: logs.reverse(), message };
   } catch (error) {
     console.error('Error fetching logs from Google Sheet:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
