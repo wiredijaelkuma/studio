@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from 'next/link';
@@ -12,12 +13,11 @@ import {
   SidebarFooter,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { ShieldCheck, LayoutDashboard, BarChart3, LogOut } from 'lucide-react'; // Removed UserCheck and Settings
+import { ShieldCheck, LayoutDashboard, BarChart3, LogOut } from 'lucide-react';
 
 const menuItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/activity', label: 'Activity Visualization', icon: BarChart3 },
-  // { href: '/admin/adherence', label: 'Adherence Analysis', icon: UserCheck }, // Removed
   // Add more admin pages here
   // { href: '/admin/settings', label: 'Settings', icon: Settings },
 ];
