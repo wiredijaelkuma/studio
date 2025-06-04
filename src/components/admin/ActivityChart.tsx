@@ -4,7 +4,7 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { ChartTooltipContent, ChartContainer, ChartConfig, ChartLegendContent } from "@/components/ui/chart"
-import type { AgentLogEntry } from "@/app/actions/getTodaysAgentLogs";
+import type { AgentLogEntry } from "@/lib/types"; // Corrected import
 import { format } from "date-fns";
 import { useMemo } from "react";
 

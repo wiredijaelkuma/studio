@@ -3,7 +3,8 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { getAgentLogsForDate, type AgentLogEntry } from "@/app/actions/getTodaysAgentLogs";
+import { getAgentLogsForDate } from "@/app/actions/getTodaysAgentLogs";
+import type { AgentLogEntry } from "@/lib/types"; // Corrected import
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -42,7 +43,7 @@ export function AgentActivityLog() {
       setIsLoading(false);
       setLogs([]);
     }
-  }, [user, today]);
+  }, [user, today]); // today is okay here as it's stable within this render cycle scope for the initial fetch logic.
 
   return (
     <Card className="shadow-md">

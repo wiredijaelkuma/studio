@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { AgentLogEntry } from "@/app/actions/getTodaysAgentLogs";
+import type { AgentLogEntry } from "@/lib/types"; // Corrected import
 import {
   Table,
   TableBody,
