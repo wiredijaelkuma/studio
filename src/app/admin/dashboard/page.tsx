@@ -11,7 +11,7 @@ import { ActivityChart } from "@/components/admin/ActivityChart";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { getAgentLogsForDate } from "@/app/actions/getTodaysAgentLogs";
 import { saveLogsToDrive } from "@/app/actions/saveLogsToDrive";
-import type { AgentLogEntry } from "@/app/actions/getTodaysAgentLogs"; // Corrected type import name
+import type { AgentLogEntry } from "@/lib/types"; // Corrected import path
 import { db } from '@/lib/firebase/config';
 import { collection, getDocs } from 'firebase/firestore';
 import type { AgentStatusFirestore } from "@/lib/types";
