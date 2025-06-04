@@ -11,7 +11,9 @@ import type { AgentActivityType } from "@/lib/types";
 import { useAuth } from '@/contexts/AuthContext';
 import { logAgentActivity } from '@/app/actions/logAgentActivity';
 import { db } from '@/lib/firebase/config';
-import { doc, setDoc, serverTimestamp, type Timestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, Timestamp, collection, addDoc } from 'firebase/firestore';
+import type { AdherenceViolationFirestore } from '@/lib/types';
+
 
 // Configuration for activity limits and notifications
 const LUNCH_DURATION_MINUTES = 30;
@@ -110,6 +112,30 @@ export function TimeTrackingControls() {
     }
   };
 
+  const logAdherenceViolation = async (type: 'lunch' | 'break', statusWhenTriggered: string) => {
+    if (!user) return;
+
+    const violationData: AdherenceViolationFirestore = {
+      agentId: user.uid,
+      agentName: user.displayName,
+      agentEmail: user.email,
+      photoURL: user.photoURL,
+      activityType: type,
+      violationTimestamp: Timestamp.now(),
+      expectedDurationMinutes: type === 'lunch' ? LUNCH_DURATION_MINUTES : BREAK_DURATION_MINUTES,
+      gracePeriodMinutes: NOTIFICATION_GRACE_PERIOD_MINUTES,
+      statusWhenTriggered: statusWhenTriggered,
+    };
+
+    try {
+      await addDoc(collection(db, 'adherenceViolations'), violationData);
+      console.log(`Adherence violation logged for ${type}`);
+    } catch (error) {
+      console.error("Error logging adherence violation to Firestore:", error);
+      // Optionally, inform the user or retry, but for now, just console log
+    }
+  };
+
   const clearAllNotificationTimers = () => {
     if (lunchNotificationTimer.current) clearTimeout(lunchNotificationTimer.current);
     if (breakNotificationTimer.current) clearTimeout(breakNotificationTimer.current);
@@ -125,11 +151,16 @@ export function TimeTrackingControls() {
     
     const timerId = setTimeout(() => {
       // Check current state directly from activityState to ensure it's still relevant
+      // Use a function to get the latest state if needed, or ensure activityState is up-to-date
+      // For simplicity here, we'll assume activityState might be slightly stale but check critical flags
+      const currentStatusSnapshot = activityState.status; // Capture current status for logging
+
       if ((type === 'lunch' && activityState.isOnLunch) || (type === 'break' && activityState.isOnBreak)) {
         showDesktopNotification(
           `${type.charAt(0).toUpperCase() + type.slice(1)} Overdue`,
           `Your ${type} time is up. Please return to work.`
         );
+        logAdherenceViolation(type, currentStatusSnapshot); // Log violation to Firestore
       }
     }, totalDurationMs);
 
@@ -140,10 +171,11 @@ export function TimeTrackingControls() {
     }
   };
 
+
   const updateFirestoreStatus = async (
     newStatus: string, 
     activityTypeForFirestore: CurrentActivityDetailType,
-    isStartingActivity: boolean // true if starting lunch/break/bathroom, false if ending or clocking in/out
+    isStartingActivity: boolean
   ) => {
     if (!user) return;
     try {
@@ -161,7 +193,6 @@ export function TimeTrackingControls() {
       if (isStartingActivity && (activityTypeForFirestore === 'lunch' || activityTypeForFirestore === 'break' || activityTypeForFirestore === 'bathroom')) {
         dataToSet.activityStartTime = serverTimestamp();
       } else {
-        // Clear activityStartTime if not starting a timed activity or if ending one/clocking out
         dataToSet.activityStartTime = null; 
       }
 
@@ -196,9 +227,23 @@ export function TimeTrackingControls() {
     }
 
     setIsLogging(true);
-    let sheetLogSuccess = false;
+    // Capture these before setActivityState as it's async
     let newActivityTypeForFirestore: CurrentActivityDetailType = null;
     let isStartingTimedActivity = false;
+    let finalStatusForFirestore = newStatus; // Will be used for Firestore update
+
+    // Determine Firestore activity type and if it's a start of a timed activity
+    switch (type) {
+      case 'clock-in': newActivityTypeForFirestore = null; isStartingTimedActivity = false; break;
+      case 'clock-out': newActivityTypeForFirestore = null; isStartingTimedActivity = false; break;
+      case 'lunch-start': newActivityTypeForFirestore = 'lunch'; isStartingTimedActivity = true; break;
+      case 'lunch-end': newActivityTypeForFirestore = null; isStartingTimedActivity = false; finalStatusForFirestore = "Clocked In - Working"; break;
+      case 'break-start': newActivityTypeForFirestore = 'break'; isStartingTimedActivity = true; break;
+      case 'break-end': newActivityTypeForFirestore = null; isStartingTimedActivity = false; finalStatusForFirestore = "Clocked In - Working"; break;
+      case 'bathroom-start': newActivityTypeForFirestore = 'bathroom'; isStartingTimedActivity = true; break;
+      case 'bathroom-end': newActivityTypeForFirestore = null; isStartingTimedActivity = false; finalStatusForFirestore = "Clocked In - Working"; break;
+    }
+
 
     try {
       const activityData = {
@@ -207,74 +252,63 @@ export function TimeTrackingControls() {
         userName: user.displayName,
         activityType: type,
         timestamp: new Date().toISOString(),
-        statusMessage: newStatus,
+        statusMessage: newStatus, // Use the direct newStatus for the Google Sheet log
       };
       
       const result = await logAgentActivity(activityData);
-      sheetLogSuccess = result.success;
+      // sheetLogSuccess = result.success; // Not used currently, but good to have
 
       if (result.success) {
         setActivityState(prevState => {
-          let nextState = { ...prevState, lastAction: type, status: newStatus };
+          let nextState = { ...prevState, lastAction: type, status: newStatus }; // UI status
           let newCounts = { ...prevState.activityCounts };
 
           switch (type) {
             case 'clock-in':
               nextState.isClockedIn = true;
               newCounts = { lunch: 0, break: 0, bathroom: 0 }; 
-              newActivityTypeForFirestore = null;
-              isStartingTimedActivity = false;
               break;
             case 'clock-out':
               nextState = initialActivityState; 
               clearAllNotificationTimers();
-              newActivityTypeForFirestore = null;
-              isStartingTimedActivity = false;
               break;
             case 'lunch-start':
               nextState.isOnLunch = true;
               newCounts.lunch += 1;
               scheduleNotification('lunch');
-              newActivityTypeForFirestore = 'lunch';
-              isStartingTimedActivity = true;
               break;
             case 'lunch-end':
               nextState.isOnLunch = false;
               if (lunchNotificationTimer.current) clearTimeout(lunchNotificationTimer.current);
               lunchNotificationTimer.current = null;
-              newActivityTypeForFirestore = null;
-              isStartingTimedActivity = false;
+              nextState.status = "Clocked In - Working"; // Ensure UI status is also correct
               break;
             case 'break-start':
               nextState.isOnBreak = true;
               newCounts.break += 1;
               scheduleNotification('break');
-              newActivityTypeForFirestore = 'break';
-              isStartingTimedActivity = true;
               break;
             case 'break-end':
               nextState.isOnBreak = false;
               if (breakNotificationTimer.current) clearTimeout(breakNotificationTimer.current);
               breakNotificationTimer.current = null;
-              newActivityTypeForFirestore = null;
-              isStartingTimedActivity = false;
+              nextState.status = "Clocked In - Working"; // Ensure UI status is also correct
               break;
             case 'bathroom-start':
               nextState.isBathroom = true;
               newCounts.bathroom += 1;
-              newActivityTypeForFirestore = 'bathroom';
-              isStartingTimedActivity = true; // Bathroom breaks can also be timed for adherence if needed
               break;
             case 'bathroom-end':
               nextState.isBathroom = false;
-              newActivityTypeForFirestore = null;
-              isStartingTimedActivity = false;
+              nextState.status = "Clocked In - Working"; // Ensure UI status is also correct
               break;
           }
           nextState.activityCounts = newCounts;
+          // This Firestore type might differ from the UI status text (e.g. "Clocked In - Working" for Firestore is `null`)
           nextState.currentActivityTypeForFirestore = newActivityTypeForFirestore;
           return nextState;
         });
+
         toast({
           title: "Activity Logged",
           description: `${message} at ${new Date().toLocaleTimeString()}. Data sent to sheet.`,
@@ -296,19 +330,17 @@ export function TimeTrackingControls() {
     } finally {
       setIsLogging(false);
     }
-
-    if (user) { // This check might be redundant if the top check for user already handles it
-      // The `currentActivityTypeForFirestore` is now set within `setActivityState`'s callback
-      // So we use `newActivityTypeForFirestore` directly from the switch case logic above.
-      await updateFirestoreStatus(newStatus, newActivityTypeForFirestore, isStartingTimedActivity);
-    }
+    
+    // Update Firestore status *after* local state has potentially updated and sheet log attempted
+    // Use finalStatusForFirestore for Firestore to correctly reflect "Clocked In - Working" after breaks/lunch end.
+    await updateFirestoreStatus(finalStatusForFirestore, newActivityTypeForFirestore, isStartingTimedActivity);
   };
   
   const handleSignOut = async () => {
     if (user && activityState.isClockedIn) {
        await handleActivity("clock-out", "Clocked Out before Sign Out", "Clocked Out");
     }
-    await updateFirestoreStatus("Offline", null, false); // Ensure Firestore status is "Offline"
+    await updateFirestoreStatus("Offline", null, false); 
     await firebaseSignOut(); 
   };
 
@@ -336,7 +368,12 @@ export function TimeTrackingControls() {
         textColor = "text-accent-foreground";
         bgColor = "bg-accent";
       }
+    } else if (activityState.status === "Clocked Out"){
+        IconComponent = LogOut;
+        textColor = "text-muted-foreground";
+        bgColor = "bg-muted";
     }
+
 
     return (
       <div className={`p-4 rounded-lg mb-6 shadow-md flex items-center justify-center gap-3 ${bgColor} ${textColor}`}>
@@ -526,5 +563,3 @@ export function TimeTrackingControls() {
     </Card>
   );
 }
-
-    
