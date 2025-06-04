@@ -10,15 +10,14 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarFooter,
-  SidebarTrigger,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { ShieldCheck, LayoutDashboard, BarChart3, UserCheck, Settings, LogOut } from 'lucide-react';
+import { ShieldCheck, LayoutDashboard, BarChart3, LogOut } from 'lucide-react'; // Removed UserCheck and Settings
 
 const menuItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/activity', label: 'Activity Visualization', icon: BarChart3 },
-  { href: '/admin/adherence', label: 'Adherence Analysis', icon: UserCheck },
+  // { href: '/admin/adherence', label: 'Adherence Analysis', icon: UserCheck }, // Removed
   // Add more admin pages here
   // { href: '/admin/settings', label: 'Settings', icon: Settings },
 ];

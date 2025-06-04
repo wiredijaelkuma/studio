@@ -24,7 +24,8 @@ export interface AgentStatus {
   isAdherent?: boolean; // Optional: can be populated by adherence check
 }
 
-export interface AdherenceAnalysisResult {
-  isOutOfAdherence: boolean;
-  reason: string;
-}
+// AdherenceAnalysisResult type removed as the feature is disabled.
+// export interface AdherenceAnalysisResult {
+//   isOutOfAdherence: boolean;
+//   reason: string;
+// }

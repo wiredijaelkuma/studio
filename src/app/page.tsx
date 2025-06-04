@@ -10,7 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { AppHeader } from '@/components/layout/AppHeader';
 
 // IMPORTANT: Update this list with your actual authorized admin email addresses.
-const AUTHORIZED_ADMIN_EMAILS = ['admin@example.com', 'your-email@example.com'];
+const AUTHORIZED_ADMIN_EMAILS = ['mijaelkuma@gmail.com', 'numusmike@gmail.com'];
 
 export default function HomePage() {
   const { user, signInWithGoogle, signOut, loading: authLoading } = useAuth();
