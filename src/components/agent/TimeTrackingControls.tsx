@@ -10,13 +10,13 @@ import { useToast } from "@/hooks/use-toast";
 import type { AgentActivityType } from "@/lib/types";
 import { useAuth } from '@/contexts/AuthContext';
 import { logAgentActivity } from '@/app/actions/logAgentActivity';
-import { db } from '@/lib/firebase/config'; // Added
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore'; // Added
+import { db } from '@/lib/firebase/config';
+import { doc, setDoc, serverTimestamp, type Timestamp } from 'firebase/firestore';
 
 // Configuration for activity limits and notifications
 const LUNCH_DURATION_MINUTES = 30;
 const BREAK_DURATION_MINUTES = 15;
-const NOTIFICATION_GRACE_PERIOD_MINUTES = 5;
+const NOTIFICATION_GRACE_PERIOD_MINUTES = 5; // Agent gets notified after base duration + grace period
 
 const MAX_LUNCH_COUNT = 1;
 const MAX_BREAK_COUNT = 2;
@@ -28,6 +28,8 @@ interface ActivityCounts {
   bathroom: number;
 }
 
+type CurrentActivityDetailType = 'lunch' | 'break' | 'bathroom' | null;
+
 interface ActivityState {
   status: string;
   lastAction?: AgentActivityType;
@@ -36,11 +38,12 @@ interface ActivityState {
   isOnBreak: boolean;
   isBathroom: boolean;
   activityCounts: ActivityCounts;
+  currentActivityTypeForFirestore: CurrentActivityDetailType;
 }
 
 export function TimeTrackingControls() {
   const { toast } = useToast();
-  const { user, loading: authLoading, signInWithGoogle, signOut: firebaseSignOut } = useAuth(); // Renamed signOut to firebaseSignOut
+  const { user, loading: authLoading, signInWithGoogle, signOut: firebaseSignOut } = useAuth();
   const [currentTime, setCurrentTime] = useState(new Date());
   
   const initialActivityState: ActivityState = {
@@ -50,6 +53,7 @@ export function TimeTrackingControls() {
     isOnBreak: false,
     isBathroom: false,
     activityCounts: { lunch: 0, break: 0, bathroom: 0 },
+    currentActivityTypeForFirestore: null,
   };
   const [activityState, setActivityState] = useState<ActivityState>(initialActivityState);
   const [isLogging, setIsLogging] = useState(false);
@@ -80,6 +84,7 @@ export function TimeTrackingControls() {
         isClockedIn: prevState.isClockedIn,
       }));
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const requestNotificationPermission = async () => {
@@ -119,6 +124,7 @@ export function TimeTrackingControls() {
     const totalDurationMs = (duration + NOTIFICATION_GRACE_PERIOD_MINUTES) * 60 * 1000;
     
     const timerId = setTimeout(() => {
+      // Check current state directly from activityState to ensure it's still relevant
       if ((type === 'lunch' && activityState.isOnLunch) || (type === 'break' && activityState.isOnBreak)) {
         showDesktopNotification(
           `${type.charAt(0).toUpperCase() + type.slice(1)} Overdue`,
@@ -134,18 +140,32 @@ export function TimeTrackingControls() {
     }
   };
 
-  const updateFirestoreStatus = async (newStatus: string) => {
+  const updateFirestoreStatus = async (
+    newStatus: string, 
+    activityTypeForFirestore: CurrentActivityDetailType,
+    isStartingActivity: boolean // true if starting lunch/break/bathroom, false if ending or clocking in/out
+  ) => {
     if (!user) return;
     try {
       const statusDocRef = doc(db, 'agentStatuses', user.uid);
-      await setDoc(statusDocRef, {
+      const dataToSet: any = {
         agentId: user.uid,
         agentEmail: user.email,
         agentName: user.displayName,
         photoURL: user.photoURL,
         currentStatus: newStatus,
         lastUpdate: serverTimestamp(),
-      }, { merge: true }); // Use merge to create or update
+        currentActivityType: activityTypeForFirestore,
+      };
+
+      if (isStartingActivity && (activityTypeForFirestore === 'lunch' || activityTypeForFirestore === 'break' || activityTypeForFirestore === 'bathroom')) {
+        dataToSet.activityStartTime = serverTimestamp();
+      } else {
+        // Clear activityStartTime if not starting a timed activity or if ending one/clocking out
+        dataToSet.activityStartTime = null; 
+      }
+
+      await setDoc(statusDocRef, dataToSet, { merge: true });
     } catch (error) {
       console.error("Error updating Firestore status:", error);
       toast({
@@ -177,6 +197,9 @@ export function TimeTrackingControls() {
 
     setIsLogging(true);
     let sheetLogSuccess = false;
+    let newActivityTypeForFirestore: CurrentActivityDetailType = null;
+    let isStartingTimedActivity = false;
+
     try {
       const activityData = {
         userId: user.uid,
@@ -199,40 +222,57 @@ export function TimeTrackingControls() {
             case 'clock-in':
               nextState.isClockedIn = true;
               newCounts = { lunch: 0, break: 0, bathroom: 0 }; 
+              newActivityTypeForFirestore = null;
+              isStartingTimedActivity = false;
               break;
             case 'clock-out':
               nextState = initialActivityState; 
               clearAllNotificationTimers();
+              newActivityTypeForFirestore = null;
+              isStartingTimedActivity = false;
               break;
             case 'lunch-start':
               nextState.isOnLunch = true;
               newCounts.lunch += 1;
               scheduleNotification('lunch');
+              newActivityTypeForFirestore = 'lunch';
+              isStartingTimedActivity = true;
               break;
             case 'lunch-end':
               nextState.isOnLunch = false;
               if (lunchNotificationTimer.current) clearTimeout(lunchNotificationTimer.current);
               lunchNotificationTimer.current = null;
+              newActivityTypeForFirestore = null;
+              isStartingTimedActivity = false;
               break;
             case 'break-start':
               nextState.isOnBreak = true;
               newCounts.break += 1;
               scheduleNotification('break');
+              newActivityTypeForFirestore = 'break';
+              isStartingTimedActivity = true;
               break;
             case 'break-end':
               nextState.isOnBreak = false;
               if (breakNotificationTimer.current) clearTimeout(breakNotificationTimer.current);
               breakNotificationTimer.current = null;
+              newActivityTypeForFirestore = null;
+              isStartingTimedActivity = false;
               break;
             case 'bathroom-start':
               nextState.isBathroom = true;
               newCounts.bathroom += 1;
+              newActivityTypeForFirestore = 'bathroom';
+              isStartingTimedActivity = true; // Bathroom breaks can also be timed for adherence if needed
               break;
             case 'bathroom-end':
               nextState.isBathroom = false;
+              newActivityTypeForFirestore = null;
+              isStartingTimedActivity = false;
               break;
           }
           nextState.activityCounts = newCounts;
+          nextState.currentActivityTypeForFirestore = newActivityTypeForFirestore;
           return nextState;
         });
         toast({
@@ -257,20 +297,19 @@ export function TimeTrackingControls() {
       setIsLogging(false);
     }
 
-    // Update Firestore status regardless of sheet logging outcome for now,
-    // but ideally, this would be more transactional or contingent on primary log success.
-    if (user) {
-      await updateFirestoreStatus(newStatus);
+    if (user) { // This check might be redundant if the top check for user already handles it
+      // The `currentActivityTypeForFirestore` is now set within `setActivityState`'s callback
+      // So we use `newActivityTypeForFirestore` directly from the switch case logic above.
+      await updateFirestoreStatus(newStatus, newActivityTypeForFirestore, isStartingTimedActivity);
     }
   };
   
   const handleSignOut = async () => {
     if (user && activityState.isClockedIn) {
-       // If clocked in, first log a clock-out event to Firestore and Google Sheet
        await handleActivity("clock-out", "Clocked Out before Sign Out", "Clocked Out");
     }
-    await firebaseSignOut(); // Then proceed with Firebase sign out
-    // AuthContext useEffect will handle UI reset
+    await updateFirestoreStatus("Offline", null, false); // Ensure Firestore status is "Offline"
+    await firebaseSignOut(); 
   };
 
 
@@ -343,7 +382,7 @@ export function TimeTrackingControls() {
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
           <div className="flex items-center gap-3">
             <Avatar className="h-12 w-12">
-              <AvatarImage src={user.photoURL || undefined} alt={user.displayName || 'User'} data-ai-hint="profile person" />
+              <AvatarImage src={user.photoURL || undefined} alt={user.displayName || 'User'} data-ai-hint="profile person"/>
               <AvatarFallback className="text-xl">
                 {user.displayName ? user.displayName.charAt(0).toUpperCase() : <UserRound />}
               </AvatarFallback>
@@ -488,3 +527,4 @@ export function TimeTrackingControls() {
   );
 }
 
+    
