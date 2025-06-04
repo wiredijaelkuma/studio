@@ -1,7 +1,7 @@
 
 'use server';
 
-import { google } from 'googleapis';
+import { google, sheets_v4 } from 'googleapis'; // Added sheets_v4
 import { z } from 'zod';
 import type { AgentActivityType } from '@/lib/types';
 
@@ -18,7 +18,7 @@ type LogAgentActivityInput = z.infer<typeof LogAgentActivityInputSchema>;
 
 const EXPECTED_HEADERS = ['Timestamp', 'Agent ID', 'Agent Email', 'Agent Name', 'Activity Type', 'Status Message'];
 
-async function ensureSheetHeaders(sheets: any, spreadsheetId: string): Promise<void> {
+async function ensureSheetHeaders(sheets: sheets_v4.Sheets, spreadsheetId: string): Promise<void> { // Typed 'sheets'
   try {
     const headerRange = 'Sheet1!A1:F1';
     const getResponse = await sheets.spreadsheets.values.get({

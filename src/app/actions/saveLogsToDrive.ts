@@ -3,7 +3,8 @@
 
 import { google } from 'googleapis';
 import { Readable } from 'stream';
-import { getAgentLogsForDate, type AgentLogEntry } from '@/app/actions/getTodaysAgentLogs'; // Adjusted import
+import { getAgentLogsForDate } from '@/app/actions/getTodaysAgentLogs';
+import type { AgentLogEntry } from '@/lib/types'; // Corrected import
 import { format } from "date-fns";
 
 // Helper function to convert array of objects to CSV string
