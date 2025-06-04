@@ -66,16 +66,20 @@ export async function getAgentLogsForDate(
 
     const headerRow = rows[0];
     const expectedHeaders = ['Timestamp', 'Agent ID', 'Agent Email', 'Agent Name', 'Activity Type', 'Status Message'];
-    if (headerRow[0] !== expectedHeaders[0]) {
-        console.warn("Sheet headers might not match expected. Assuming order: Timestamp, Agent ID, Agent Email, Agent Name, Activity Type, Status Message");
+    if (!headerRow || headerRow.length < expectedHeaders.length || headerRow[0] !== expectedHeaders[0] || headerRow[1] !== expectedHeaders[1] || headerRow[2] !== expectedHeaders[2] || headerRow[3] !== expectedHeaders[3] || headerRow[4] !== expectedHeaders[4] || headerRow[5] !== expectedHeaders[5]) {
+        console.warn("Sheet headers might not match expected, header row is missing/incomplete, or first header is incorrect. Assuming column order: Timestamp, Agent ID, Agent Email, Agent Name, Activity Type, Status Message. Actual headers:", headerRow);
     }
+
 
     const logs: AgentLogEntry[] = [];
     const { startOfDay, endOfDay } = getDateRangeForDay(dateString);
 
-    for (let i = 1; i < rows.length; i++) {
+    for (let i = 1; i < rows.length; i++) { // Start from 1 to skip header
       const row = rows[i];
-      if (row.length < 6) continue;
+      if (!row || row.length < 6) { // Check if row is undefined or doesn't have enough columns
+        console.warn(`Skipping row ${i+1} due to insufficient data or undefined row.`);
+        continue;
+      }
 
       const logTimestampISO = row[0];
       const agentIdFromSheet = row[1] || '';
@@ -90,8 +94,8 @@ export async function getAgentLogsForDate(
           const entry: AgentLogEntry = {
             timestamp: new Date(logTimestampISO).toLocaleString(),
             agentId: agentIdFromSheet,
-            agentEmail: row[2] || '',
-            agentName: row[3] || '',
+            agentEmail: row[2] || null,
+            agentName: row[3] || null,
             activityType: row[4] || '',
             statusMessage: row[5] || '',
           };
@@ -111,3 +115,4 @@ export async function getAgentLogsForDate(
     return { success: false, message: `Failed to fetch logs: ${errorMessage}` };
   }
 }
+
