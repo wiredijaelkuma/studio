@@ -25,7 +25,7 @@ export default function NotFound() {
         </CardContent>
       </Card>
        <footer className="text-center py-6 mt-8">
-          <p className="text-sm text-muted-foreground">&copy; {new Date().getFullYear()} AgentAlly. All rights reserved.</p>
+          <p className="text-sm text-muted-foreground">&copy; 2024 AgentAlly. All rights reserved.</p>
         </footer>
     </div>
   );
